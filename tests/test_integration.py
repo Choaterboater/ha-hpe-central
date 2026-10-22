@@ -543,3 +543,15 @@ async def test_real_central_client_row(hass, aioclient_mock):
     assert (row["name"], row["vendor"], row["snr"], row["ap"], row["wired"], row["port"]) == (
         "Apple 96:20:60", "Apple", 27, "AP 1", False, None)
     assert er.async_get(hass).async_get("device_tracker.apple_96_20_60") is not None  # auto-added, disabled
+
+
+async def test_client_named_by_another_integration(hass, aioclient_mock):
+    # A camera another integration already knows by MAC is listed by that name, not by vendor + MAC.
+    other = MockConfigEntry(domain="example_camera")
+    other.add_to_hass(hass)
+    dr.async_get(hass).async_get_or_create(config_entry_id=other.entry_id, name="Front door",
+                                           connections={(dr.CONNECTION_NETWORK_MAC, "02:00:00:a3:c7:c2")})
+    central(aioclient_mock, [PHONE_A, PRINTER])
+    await setup(hass)
+    site = hass.states.get("sensor.site_1_clients").attributes["clients"]
+    assert [c["name"] for c in site] == ["Front door", "Test Phone"]

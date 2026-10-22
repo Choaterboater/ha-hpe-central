@@ -57,6 +57,13 @@ def test_client_from_central():
         None, "Apple", "5 GHz", 27, 200, False)
     assert client_label(real) == "Apple 96:20:60"
     assert client_from_central({"clientManufacturer": "Private"}, "s1", {})["manufacture"] is None
+    # The authenticated name (ClearPass MAC-auth guest entry) beats the DHCP hostname; a MAC as the
+    # username (plain MAC auth) does not.
+    named = {"macAddress": "02:00:00:00:00:78", "hostName": "wiz_000078", "userName": "Light_Porch"}
+    assert client_from_central(named, "s1", {})["hostname"] == "Light_Porch"
+    mac_auth = {"macAddress": "02:00:00:00:00:78", "hostName": "wiz_000078", "userName": "020000000078"}
+    assert client_from_central(mac_auth, "s1", {})["hostname"] == "wiz_000078"
+    assert client_from_central({**mac_auth, "clientName": "Kitchen bulb"}, "s1", {})["hostname"] == "Kitchen bulb"
     assert client_is_connected({"status": "Connected"}) and client_is_connected({})
     assert not client_is_connected({"status": "Failed"})
 

@@ -183,8 +183,12 @@ def device_key(d: dict[str, Any]) -> str:
 
 
 def _hostname(c: dict[str, Any]) -> str | None:
-    """Central fills hostName / clientName with the MAC when it knows no name: that is no name."""
-    for key in ("hostName", "clientName"):
+    """The name Central lists the client by, else the DHCP hostname.
+
+    userName is the authenticated name (a ClearPass MAC-auth guest entry, an 802.1X login); plain
+    MAC auth and Central's own fallbacks fill these fields with the MAC, which is no name.
+    """
+    for key in ("userName", "clientName", "hostName"):
         name = _text(c.get(key))
         if name and not (mac_key(name) and mac_key(name) == mac_key(c.get("macAddress"))):
             return name

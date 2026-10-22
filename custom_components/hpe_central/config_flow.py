@@ -36,7 +36,7 @@ from .const import (
     DOMAIN,
     PICKER_SECONDS,
 )
-from .coordinator import SeenClients
+from .coordinator import SeenClients, registry_name
 from .errors import SourceAuthError, SourceError
 from .presence import client_label, mac_key, mac_pretty
 from .source import CentralSource
@@ -137,9 +137,9 @@ def _ago(seconds: float) -> str:
     return f"{int(seconds // 86400)} d ago"
 
 
-def picker_label(row: dict[str, Any], connected: bool, now: float) -> str:
+def picker_label(row: dict[str, Any], connected: bool, now: float, name: str | None = None) -> str:
     """name · ip · mac · vendor · (connected now | seen 3 h ago)."""
-    parts = [client_label(row), row.get("ip") or "no ip", mac_pretty(row.get("mac"))]
+    parts = [name or client_label(row), row.get("ip") or "no ip", mac_pretty(row.get("mac"))]
     if row.get("manufacture"):
         parts.append(row["manufacture"])
     parts.append("connected now" if connected else f"seen {_ago(now - float(row.get('last_seen') or 0))}")
@@ -244,9 +244,9 @@ class HpeCentralOptionsFlow(OptionsFlow):
             for c in await source.clients():
                 if not (m := mac_key(c.get("mac"))):
                     continue
-                label = client_label(c)
+                label = registry_name(self.hass, m) or client_label(c)
                 self._hostnames[m] = label
-                rows[m] = ((1, label.lower()), picker_label({**c, "mac": m}, True, now))
+                rows[m] = ((1, label.lower()), picker_label({**c, "mac": m}, True, now, label))
         except SourceAuthError:
             error = "invalid_auth"
         except SourceError as err:
@@ -257,8 +257,9 @@ class HpeCentralOptionsFlow(OptionsFlow):
             # Tracked clients are always listed; others only when seen in the last 7 days.
             if m in rows or (m not in current and now - last > PICKER_SECONDS):
                 continue
-            self._hostnames.setdefault(m, client_label({**row, "mac": m}))
-            rows[m] = ((2, -last), picker_label({**row, "mac": m}, False, now))
+            label = registry_name(self.hass, m) or client_label({**row, "mac": m})
+            self._hostnames.setdefault(m, label)
+            rows[m] = ((2, -last), picker_label({**row, "mac": m}, False, now, label))
         for m, name in current.items():  # the store keeps 30 days
             rows.setdefault(m, ((0,), f"{name} · {mac_pretty(m)} · not seen in 30 days"))
         ordered = sorted(rows.items(), key=lambda kv: ((0, kv[1][1].lower()) if kv[0] in current else kv[1][0]))

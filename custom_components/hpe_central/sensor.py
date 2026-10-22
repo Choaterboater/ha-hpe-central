@@ -58,7 +58,7 @@ def _by_name(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _name(c: HpeCentralCoordinator, x: Sighting) -> str:
-    return c.picked.get(x.mac) or x.label
+    return c.client_name(x)
 
 
 # --- per site: value_fn(coordinator, site_id) ----------------------------------
