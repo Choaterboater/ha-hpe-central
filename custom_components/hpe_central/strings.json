@@ -1,0 +1,165 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to HPE Central",
+        "description": "Pick the Central cluster your account is on (its API gateway), or type another base URL. Use a Central API client (client id and secret) from HPE GreenLake; it needs read access to monitoring. The secret is stored only in this config entry.",
+        "data": {
+          "base_url": "Central cluster (API base URL)",
+          "client_id": "Client ID",
+          "client_secret": "Client secret"
+        },
+        "data_description": {
+          "base_url": "For example US-1 is https://us1.api.central.arubanetworks.com."
+        }
+      },
+      "sites": {
+        "title": "Sites",
+        "description": "Pick the sites to bring into Home Assistant. Leave all ticked to include every site, also ones added later.",
+        "data": {
+          "sites": "Sites"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "GreenLake or Central refused this client id / secret.",
+      "cannot_connect": "Could not reach Central at that base URL."
+    },
+    "abort": {
+      "already_configured": "This Central account is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Clients",
+        "description": "Any client Central lists works, wired or Wi-Fi: phone, laptop, car, printer, IoT device. The list shows clients connected now and clients this integration saw in the last 7 days (name · ip · mac · vendor · when). Tick clients to track, or type the MAC of one that is not listed (separate several with commas). For a phone, use an address that stays the same for this network, not a rotating one.",
+        "data": {
+          "clients": "Clients",
+          "extra_mac": "MAC address not listed",
+          "add_all_clients": "Add all other clients (disabled until you enable them)",
+          "sites": "Sites"
+        },
+        "data_description": {
+          "add_all_clients": "Every client Central reports gets a tracker you can enable in one click under Entities. Ticked clients are always enabled and get their own device.",
+          "sites": "Leave all ticked to include every site, also ones added later."
+        }
+      },
+      "names": {
+        "title": "Name each client",
+        "description": "The name becomes the device and the tracker entity.\n\n{clients}"
+      }
+    },
+    "error": {
+      "invalid_mac": "That is not a MAC address (like 02:00:00:00:00:01).",
+      "invalid_auth": "Central refused the saved client id / secret; remove and add the integration again.",
+      "cannot_connect": "Could not list connected clients from Central right now. You can still type a MAC."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "clients": {
+        "name": "Clients"
+      },
+      "wireless_clients": {
+        "name": "Wireless clients"
+      },
+      "wired_clients": {
+        "name": "Wired clients"
+      },
+      "aps_online": {
+        "name": "APs online"
+      },
+      "aps_offline": {
+        "name": "APs offline"
+      },
+      "active_alarms": {
+        "name": "Active alarms"
+      },
+      "ssid_clients": {
+        "name": "Clients on {ssid}"
+      },
+      "device_clients": {
+        "name": "Clients"
+      },
+      "cpu": {
+        "name": "CPU"
+      },
+      "memory": {
+        "name": "Memory"
+      },
+      "firmware": {
+        "name": "Firmware"
+      },
+      "last_restart": {
+        "name": "Last restart"
+      },
+      "radio_clients": {
+        "name": "{band} clients"
+      },
+      "radio_channel": {
+        "name": "{band} channel"
+      },
+      "radio_utilization": {
+        "name": "{band} utilization"
+      },
+      "ip": {
+        "name": "IP address"
+      },
+      "ssid": {
+        "name": "SSID"
+      },
+      "ap": {
+        "name": "Connected to"
+      },
+      "radio_power": {
+        "name": "{band} power"
+      },
+      "radio_noise_floor": {
+        "name": "{band} noise floor"
+      },
+      "radios": {
+        "name": "Radios"
+      },
+      "uplink": {
+        "name": "Uplink"
+      },
+      "wlans": {
+        "name": "WLANs"
+      },
+      "ports_up": {
+        "name": "Ports up"
+      },
+      "poe_draw": {
+        "name": "PoE draw"
+      },
+      "vlans": {
+        "name": "VLANs"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
+      },
+      "port": {
+        "name": "Port {port}"
+      }
+    },
+    "event": {
+      "events": {
+        "name": "Events",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "client_joined": "Client joined",
+              "client_left": "Client left",
+              "device_down": "Device down",
+              "device_up": "Device up",
+              "alarm": "Alarm"
+            }
+          }
+        }
+      }
+    }
+  }
+}
