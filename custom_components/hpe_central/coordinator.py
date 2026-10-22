@@ -42,10 +42,13 @@ from .source import Alarm, Client, Device, PresenceSource, Snapshot, Wlan
 
 
 @callback
-def registry_name(hass: HomeAssistant, mac: str) -> str | None:
-    """The name Home Assistant already has for this MAC (a Ring camera, a Sonos speaker...)."""
+def known_name(hass: HomeAssistant, mac: str, central_name: str | None = None) -> str | None:
+    """A name someone gave this MAC: renamed in Home Assistant, else Central's, else the name the
+    integration that owns the device gave it (a Ring camera, a WiZ bulb...)."""
     dev = dr.async_get(hass).async_get_device(connections={(dr.CONNECTION_NETWORK_MAC, mac_pretty(mac))})
-    return (dev.name_by_user or dev.name) if dev else None
+    if dev and dev.name_by_user:
+        return dev.name_by_user
+    return central_name or (dev.name if dev else None)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,7 +69,7 @@ class NetworkData:
         return sum(1 for a in self.alarms if a["site_id"] == site_id and not a["acked"])
 
 
-SEEN_KEYS = ("hostname", "ip", "manufacture", "ssid", "site_id", "band", "wired")
+SEEN_KEYS = ("user_name", "hostname", "ip", "manufacture", "ssid", "site_id", "band", "wired")
 
 
 def seen_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
@@ -235,8 +238,8 @@ class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
 
     @callback
     def client_name(self, s: Sighting) -> str:
-        """Picked name, else Home Assistant's name for the MAC, else Central's name / hostname / vendor."""
-        return self.picked.get(s.mac) or registry_name(self.hass, s.mac) or s.label
+        """Picked name, else a name someone gave the MAC, else hostname / vendor."""
+        return self.picked.get(s.mac) or known_name(self.hass, s.mac, s.user_name) or s.label
 
     def device_name(self, mac: str | None) -> str | None:
         dev = self.net.devices.get(mac or "")

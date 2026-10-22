@@ -555,3 +555,22 @@ async def test_client_named_by_another_integration(hass, aioclient_mock):
     await setup(hass)
     site = hass.states.get("sensor.site_1_clients").attributes["clients"]
     assert [c["name"] for c in site] == ["Front door", "Test Phone"]
+
+
+async def test_central_name_beats_integration_name_but_not_a_rename(hass, aioclient_mock):
+    # Central's name (ClearPass) beats the name an integration made up for a bulb; a rename in HA beats both.
+    other = MockConfigEntry(domain="example_bulb")
+    other.add_to_hass(hass)
+    dev_reg = dr.async_get(hass)
+    bulb = dev_reg.async_get_or_create(config_entry_id=other.entry_id, name="Bulb 00:00:76",
+                                       connections={(dr.CONNECTION_NETWORK_MAC, PHONE)})
+    central(aioclient_mock, [{**PHONE_A, "userName": "Light_Porch"}, PRINTER])
+    await setup(hass, entry(options={"tracked": {}}))
+    names = lambda: [c["name"] for c in hass.states.get("sensor.site_1_clients").attributes["clients"]]  # noqa: E731
+    assert "Light_Porch" in names() and "Bulb 00:00:76" not in names()
+
+    dev_reg.async_update_device(bulb.id, name_by_user="Porch light")
+    coordinator = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert "Porch light" in names()

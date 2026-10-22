@@ -34,7 +34,7 @@ def test_client_from_central():
          "wlanName": "Example", "connectedDeviceSerial": "ap0000001", "clientVendor": "ExampleVendor"},
         "s1", {"AP0000001": "020000000001"})
     assert c.pop("last_seen") > 0  # Central gave none: now
-    assert c == {"mac": "02:00:00:00:00:76", "site_id": "s1", "ip": "192.0.2.10", "hostname": "phone-a",
+    assert c == {"mac": "02:00:00:00:00:76", "site_id": "s1", "ip": "192.0.2.10", "user_name": "phone-a", "hostname": None,
                  "manufacture": "ExampleVendor", "ssid": "Example", "ap_mac": "020000000001", "rssi": None, "snr": None,
                  "band": None, "wired": False, "port": None, "switch_mac": None, "vlan": None}
     w = client_from_central(
@@ -60,10 +60,11 @@ def test_client_from_central():
     # The authenticated name (ClearPass MAC-auth guest entry) beats the DHCP hostname; a MAC as the
     # username (plain MAC auth) does not.
     named = {"macAddress": "02:00:00:00:00:78", "hostName": "wiz_000078", "userName": "Light_Porch"}
-    assert client_from_central(named, "s1", {})["hostname"] == "Light_Porch"
+    assert client_label(client_from_central(named, "s1", {})) == "Light_Porch"
     mac_auth = {"macAddress": "02:00:00:00:00:78", "hostName": "wiz_000078", "userName": "020000000078"}
-    assert client_from_central(mac_auth, "s1", {})["hostname"] == "wiz_000078"
-    assert client_from_central({**mac_auth, "clientName": "Kitchen bulb"}, "s1", {})["hostname"] == "Kitchen bulb"
+    assert client_from_central(mac_auth, "s1", {})["user_name"] is None
+    assert client_label(client_from_central(mac_auth, "s1", {})) == "wiz_000078"
+    assert client_label(client_from_central({**mac_auth, "clientName": "Kitchen bulb"}, "s1", {})) == "Kitchen bulb"
     assert client_is_connected({"status": "Connected"}) and client_is_connected({})
     assert not client_is_connected({"status": "Failed"})
 

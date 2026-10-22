@@ -36,7 +36,7 @@ from .const import (
     DOMAIN,
     PICKER_SECONDS,
 )
-from .coordinator import SeenClients, registry_name
+from .coordinator import SeenClients, known_name
 from .errors import SourceAuthError, SourceError
 from .presence import client_label, mac_key, mac_pretty
 from .source import CentralSource
@@ -244,7 +244,7 @@ class HpeCentralOptionsFlow(OptionsFlow):
             for c in await source.clients():
                 if not (m := mac_key(c.get("mac"))):
                     continue
-                label = registry_name(self.hass, m) or client_label(c)
+                label = known_name(self.hass, m, c.get("user_name")) or client_label(c)
                 self._hostnames[m] = label
                 rows[m] = ((1, label.lower()), picker_label({**c, "mac": m}, True, now, label))
         except SourceAuthError:
@@ -257,7 +257,7 @@ class HpeCentralOptionsFlow(OptionsFlow):
             # Tracked clients are always listed; others only when seen in the last 7 days.
             if m in rows or (m not in current and now - last > PICKER_SECONDS):
                 continue
-            label = registry_name(self.hass, m) or client_label({**row, "mac": m})
+            label = known_name(self.hass, m, row.get("user_name")) or client_label({**row, "mac": m})
             self._hostnames.setdefault(m, label)
             rows[m] = ((2, -last), picker_label({**row, "mac": m}, False, now, label))
         for m, name in current.items():  # the store keeps 30 days

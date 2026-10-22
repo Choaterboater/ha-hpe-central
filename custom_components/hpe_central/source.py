@@ -4,7 +4,7 @@ The coordinator only talks to a PresenceSource (the same design as the HPE Mist
 integration). Everything a source returns is already normalised into the plain
 dicts described below.
 
-Client: mac, site_id, ip, hostname, manufacture (vendor), ssid, ap_mac, rssi, snr (dB),
+Client: mac, site_id, ip, user_name (Central's name for it), hostname, manufacture (vendor), ssid, ap_mac, rssi, snr (dB),
         band ("2.4 GHz" | "5 GHz" | "6 GHz"), wired (bool), port (switch port
         when wired), switch_mac (wired), vlan (int), last_seen (epoch s).
 Device: mac, site_id, type ("ap" | "switch" | "gateway"), name, model, serial,
@@ -50,7 +50,7 @@ Client = dict[str, Any]
 Device = dict[str, Any]
 Alarm = dict[str, Any]
 Wlan = dict[str, Any]
-CLIENT_KEYS = ("mac", "site_id", "ip", "hostname", "manufacture", "ssid", "ap_mac", "rssi", "snr",
+CLIENT_KEYS = ("mac", "site_id", "ip", "user_name", "hostname", "manufacture", "ssid", "ap_mac", "rssi", "snr",
                "band", "wired", "port", "switch_mac", "vlan", "last_seen")
 
 
@@ -182,13 +182,10 @@ def device_key(d: dict[str, Any]) -> str:
     return mac_key(d.get("macAddress")) or str(d.get("serialNumber") or "").lower()
 
 
-def _hostname(c: dict[str, Any]) -> str | None:
-    """The name Central lists the client by, else the DHCP hostname.
-
-    userName is the authenticated name (a ClearPass MAC-auth guest entry, an 802.1X login); plain
-    MAC auth and Central's own fallbacks fill these fields with the MAC, which is no name.
-    """
-    for key in ("userName", "clientName", "hostName"):
+def _named(c: dict[str, Any], *keys: str) -> str | None:
+    """The first of keys that holds a name. Plain MAC auth and Central's own fallbacks fill
+    these fields with the MAC, which is no name."""
+    for key in keys:
         name = _text(c.get(key))
         if name and not (mac_key(name) and mac_key(name) == mac_key(c.get("macAddress"))):
             return name
@@ -211,7 +208,10 @@ def client_from_central(c: dict[str, Any], site_id: str, ap_by_serial: dict[str,
         "mac": c.get("macAddress"),
         "site_id": site_id,
         "ip": c.get("ipv4") or None,
-        "hostname": _hostname(c),
+        # Central lists a client by its authenticated name (a ClearPass MAC-auth guest entry, an
+        # 802.1X login); the hostname is whatever the client sent in its DHCP request.
+        "user_name": _named(c, "userName", "clientName"),
+        "hostname": _named(c, "hostName"),
         "manufacture": _vendor(c),
         "ssid": None if wired else c.get("wlanName") or None,
         "ap_mac": None if wired else device,

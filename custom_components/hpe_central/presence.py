@@ -31,8 +31,8 @@ def mac_pretty(mac: Any) -> str:
 def client_label(client: Any) -> str:
     """Hostname, else vendor + last 3 MAC bytes ('Canon a3:c7:c2'), else the MAC."""
     get = client.get if isinstance(client, dict) else lambda k: getattr(client, k, None)
-    if hostname := str(get("hostname") or "").strip():
-        return hostname
+    if name := str(get("user_name") or "").strip() or str(get("hostname") or "").strip():
+        return name
     if vendor := str(get("manufacture") or "").strip():
         return f"{vendor} {mac_pretty(get('mac'))[-8:]}".strip()
     return mac_pretty(get("mac")) or str(get("mac") or "")
@@ -47,6 +47,7 @@ class Sighting:
     home: bool = False
     site_id: str | None = None
     ip: str | None = None
+    user_name: str | None = None
     hostname: str | None = None
     manufacture: str | None = None
     ssid: str | None = None
@@ -85,7 +86,7 @@ class PresenceTracker:
         joined = not s.home
         s.last_seen = now
         s.home = True
-        for key in ("site_id", "ip", "hostname", "manufacture", "ssid", "rssi", "snr", "band", "port", "vlan"):
+        for key in ("site_id", "ip", "user_name", "hostname", "manufacture", "ssid", "rssi", "snr", "band", "port", "vlan"):
             if client.get(key) not in (None, ""):
                 setattr(s, key, client[key])
         s.ap_mac = mac_key(client.get("ap_mac")) or s.ap_mac
