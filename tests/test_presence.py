@@ -34,6 +34,7 @@ def test_client_from_central():
          "wlanName": "Example", "connectedDeviceSerial": "ap0000001", "clientVendor": "ExampleVendor"},
         "s1", {"AP0000001": "020000000001"})
     assert c.pop("last_seen") > 0  # Central gave none: now
+    assert c.pop("details") == {}
     assert c == {"mac": "02:00:00:00:00:76", "site_id": "s1", "ip": "192.0.2.10", "user_name": "phone-a", "hostname": None,
                  "manufacture": "ExampleVendor", "ssid": "Example", "ap_mac": "020000000001", "rssi": None, "snr": None,
                  "band": None, "wired": False, "port": None, "switch_mac": None, "vlan": None}

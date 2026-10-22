@@ -574,3 +574,49 @@ async def test_central_name_beats_integration_name_but_not_a_rename(hass, aiocli
     await coordinator.async_refresh()
     await hass.async_block_till_done()
     assert "Porch light" in names()
+
+
+async def test_client_rows_with_details_and_estimated_rssi(hass, aioclient_mock, hass_ws_client):
+    phone = {**PHONE_A, "snr": 27, "userName": "Light_Porch", "clientCategory": "Wiz IoT", "role": "iot",
+             "keyManagement": "WPA2-PSK", "connectedAt": 1790301396910, "phyType": "-"}
+    central(aioclient_mock, [phone, PRINTER])
+    await setup(hass)
+    ws = await hass_ws_client(hass)
+    await ws.send_json({"id": 1, "type": "hpe_central/clients"})
+    rows = {r["mac"]: r for r in (await ws.receive_json())["result"]["clients"]}
+    p = rows[PHONE]
+    assert (p["name"], p["found_name"], p["tracked"], p["connected"], p["source"]) == (
+        "Test Phone", "Light_Porch", True, True, "Central")
+    # Central gives SNR only: the 5 GHz radio's -90 dBm noise floor + 27 dB.
+    assert (p["rssi"], p["rssi_estimated"], p["snr"]) == (-63, True, 27)
+    assert {k: p.get(k) for k in ("category", "role", "key_mgmt", "connected_since", "phy", "ap", "ssid", "vlan")} == {
+        "category": "Wiz IoT", "role": "iot", "key_mgmt": "WPA2-PSK", "connected_since": 1790301396.91, "phy": None,
+        "ap": "AP 1", "ssid": "Example", "vlan": 21}
+    w = rows["02:00:00:a3:c7:c2"]
+    assert (w["wired"], w["switch"], w["port"], w["rssi"], w["rssi_estimated"], w["ap"]) == (
+        True, "Switch 1", "1/1/2", None, False, None)
+
+
+async def test_rename_client_action(hass, aioclient_mock):
+    from homeassistant.exceptions import ServiceValidationError
+
+    central(aioclient_mock, [PHONE_A, PRINTER])
+    e = await setup(hass)
+    names = lambda: [c["name"] for c in hass.states.get("sensor.site_1_clients").attributes["clients"]]  # noqa: E731
+    rename = lambda mac, name: hass.services.async_call(DOMAIN, "rename_client", {"mac": mac, "name": name}, blocking=True)  # noqa: E731
+
+    await rename("02-00-00-A3-C7-C2", " Office printer ")
+    await hass.async_block_till_done()
+    assert "Office printer" in names()
+    await rename("02:00:00:a3:c7:c2", "")  # back to the found name
+    await hass.async_block_till_done()
+    assert "ExampleVendor a3:c7:c2" in names()
+
+    # A picked client's name is its device's name too: it changes in the options (and the entry reloads).
+    await rename(PHONE, "Phone A")
+    await settle(hass)
+    assert e.options["tracked"] == {PHONE: "Phone A"}
+    assert "Phone A" in names()
+
+    with pytest.raises(ServiceValidationError):
+        await rename("not-a-mac", "x")

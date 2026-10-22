@@ -59,6 +59,7 @@ class Sighting:
     port: str | None = None
     switch_mac: str | None = None
     vlan: int | None = None
+    details: dict[str, Any] = field(default_factory=dict)  # the rest, for the client list card
 
     @property
     def label(self) -> str:
@@ -89,6 +90,8 @@ class PresenceTracker:
         for key in ("site_id", "ip", "user_name", "hostname", "manufacture", "ssid", "rssi", "snr", "band", "port", "vlan"):
             if client.get(key) not in (None, ""):
                 setattr(s, key, client[key])
+        if isinstance(client.get("details"), dict):
+            s.details = client["details"]
         s.ap_mac = mac_key(client.get("ap_mac")) or s.ap_mac
         s.switch_mac = mac_key(client.get("switch_mac")) or s.switch_mac
         if client.get("wired") is not None:  # a client that moved drops the other link's details

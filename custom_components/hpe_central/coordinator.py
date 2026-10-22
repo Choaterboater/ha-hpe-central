@@ -37,6 +37,7 @@ from .const import (
     UNAVAILABLE_AFTER_SECONDS,
 )
 from .errors import SourceAuthError, SourceBusyError, SourceError
+from .names import saved_name
 from .presence import PresenceTracker, Sighting, mac_key, mac_pretty
 from .source import Alarm, Client, Device, PresenceSource, Snapshot, Wlan
 
@@ -45,10 +46,15 @@ from .source import Alarm, Client, Device, PresenceSource, Snapshot, Wlan
 def known_name(hass: HomeAssistant, mac: str, central_name: str | None = None) -> str | None:
     """A name someone gave this MAC: renamed in Home Assistant, else Central's, else the name the
     integration that owns the device gave it (a Ring camera, a WiZ bulb...)."""
-    dev = dr.async_get(hass).async_get_device(connections={(dr.CONNECTION_NETWORK_MAC, mac_pretty(mac))})
-    if dev and dev.name_by_user:
-        return dev.name_by_user
-    return central_name or (dev.name if dev else None)
+    # A MAC can be on several devices (another integration's, and ours for an AP or switch).
+    devices = dr.async_get(hass).async_get_devices(connections={(dr.CONNECTION_NETWORK_MAC, mac_pretty(mac))})
+    if renamed := next((d.name_by_user for d in devices if d.name_by_user), None):
+        return renamed
+    if central_name:
+        return central_name
+    ours = {e.entry_id for e in hass.config_entries.async_entries(DOMAIN)}
+    devices.sort(key=lambda d: d.config_entry_id in ours)  # another integration's name first
+    return next((d.name for d in devices if d.name), None)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -238,8 +244,42 @@ class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
 
     @callback
     def client_name(self, s: Sighting) -> str:
-        """Picked name, else a name someone gave the MAC, else hostname / vendor."""
-        return self.picked.get(s.mac) or known_name(self.hass, s.mac, s.user_name) or s.label
+        """Picked or typed name, else a name someone gave the MAC, else hostname / vendor."""
+        return self.picked.get(s.mac) or saved_name(self.hass, s.mac) or self.found_name(s)
+
+    @callback
+    def found_name(self, s: Sighting) -> str:
+        """The name without the ones typed into this integration."""
+        return known_name(self.hass, s.mac, s.user_name) or s.label
+
+    def rssi_estimate(self, s: Sighting) -> float | None:
+        """Central gives SNR only: SNR + the noise floor of the AP radio the client is on ~ RSSI."""
+        ap = self.net.devices.get(s.ap_mac or "")
+        radio = next((r for r in (ap or {}).get("radios", {}).values() if r.get("band") == s.band), None)
+        noise = radio.get("noise_floor") if radio else None
+        return round(noise + s.snr) if noise is not None and s.snr is not None and not s.wired else None
+
+    @callback
+    def client_rows(self) -> list[dict[str, Any]]:
+        """Every client seen since start, for the client list card."""
+        return [self.client_row(s) for s in list(self.net.clients.values()) if s.last_seen]
+
+    @callback
+    def client_row(self, s: Sighting) -> dict[str, Any]:
+        """One client for the client list card: everything Central says, with the names it was given."""
+        rssi = self.rssi_estimate(s)
+        assert self.config_entry
+        return {
+            **s.details,
+            "domain": DOMAIN, "source": "Central", "entry_id": self.config_entry.entry_id,
+            "mac": mac_pretty(s.mac), "name": self.client_name(s), "found_name": self.found_name(s),
+            "tracked": s.mac in self.picked, "connected": s.home, "last_seen": s.last_seen,
+            "site": self.net.sites.get(s.site_id or "") or s.site_id, "ip": s.ip, "user_name": s.user_name,
+            "hostname": s.hostname, "vendor": s.manufacture, "wired": s.wired,
+            "ssid": None if s.wired else s.ssid, "band": None if s.wired else s.band, "vlan": s.vlan,
+            "ap": None if s.wired else self.device_name(s.ap_mac), "switch": self.device_name(s.switch_mac) if s.wired else None,
+            "port": s.port if s.wired else None, "snr": s.snr, "rssi": rssi, "rssi_estimated": rssi is not None,
+        }
 
     def device_name(self, mac: str | None) -> str | None:
         dev = self.net.devices.get(mac or "")

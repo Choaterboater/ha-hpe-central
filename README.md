@@ -29,8 +29,12 @@ way. One config entry per Central account (GreenLake workspace) gives you:
   - List attributes are capped at 500 rows and kept out of the recorder.
 - The site's **Clients** sensor carries `clients`: every connected client with
   name, mac, ip, ssid, band, ap, wired, port, switch, rssi, vendor and snr. A
-  name is the tracked name, else the hostname, else vendor + last 3 MAC bytes, else
-  the MAC.
+  client's name is the first of: the name you gave it (when picking it, or with the
+  rename box / `hpe_central.rename_client`), a rename of its device in Home Assistant,
+  Central's name for it (the user name, for example a ClearPass MAC-auth guest
+  entry, or the client name), the name another integration gave the device with
+  that MAC (a WiZ bulb, a Ring camera), the DHCP hostname, the vendor + last 3 MAC
+  bytes, the MAC. A user name or client name that is just the MAC is skipped.
 - **A tracker per client**: any client Central lists works, Wi-Fi or wired
   (phone, laptop, car, printer, IoT device). Clients you tick in the options are
   enabled, named, and get their own device and sensors (IP address, SSID, connected
@@ -42,6 +46,33 @@ way. One config entry per Central account (GreenLake workspace) gives you:
 
 Nothing is installed on the clients; everything is set up and edited in the
 Home Assistant UI.
+
+### Cards
+
+The integration adds three cards to the dashboard card picker (no YAML, no
+resources to add):
+
+- **HPE Client list**: every client from HPE Central and HPE Mist. Sortable
+  columns (click a header; again to reverse), search across every field, filters
+  (site, wired / wireless, network, type) and *Connected now*. Pick the columns in
+  the card editor: IP, network, connected to, signal, SNR, type, vendor, OS, site,
+  VLAN, role, band, channel, security, auth, user name, hostname, MAC, connected
+  for, last seen, health, source. Clicking a client opens everything Central
+  gives for it (role, VLAN name, category, OS, channel, BSSID, PHY, capabilities,
+  security, key management, auth, tunnel, connected since…) and a rename box.
+  *Download CSV* saves the filtered list. Central reports SNR, not RSSI: the
+  signal column shows `≈ RSSI`, the SNR plus the noise floor of the AP radio the
+  client is on.
+- **HPE Access point** and **HPE Switch**: pick a device.
+
+The card reads its rows with the `hpe_central/clients` websocket command while
+it is shown, so the long rows stay out of the state machine.
+
+### Actions
+
+| Action | Data | Does |
+|---|---|---|
+| `hpe_central.rename_client` | `mac`, `name` | Names any client. An empty name goes back to the name the integration found. A picked client's name in the options changes too. Typed names are kept in `.storage/hpe_central.client_names`. |
 
 ### Events
 

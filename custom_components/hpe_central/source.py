@@ -6,7 +6,8 @@ dicts described below.
 
 Client: mac, site_id, ip, user_name (Central's name for it), hostname, manufacture (vendor), ssid, ap_mac, rssi, snr (dB),
         band ("2.4 GHz" | "5 GHz" | "6 GHz"), wired (bool), port (switch port
-        when wired), switch_mac (wired), vlan (int), last_seen (epoch s).
+        when wired), switch_mac (wired), vlan (int), last_seen (epoch s),
+        details {DETAIL_FIELDS key: text, connected_since (epoch s)} for the client list card.
 Device: mac, site_id, type ("ap" | "switch" | "gateway"), name, model, serial,
         ip, version, online, uptime (s), clients, cpu (%), memory (%),
         temperature (C),
@@ -223,7 +224,43 @@ def client_from_central(c: dict[str, Any], site_id: str, ap_by_serial: dict[str,
         "switch_mac": device if wired else None,
         "vlan": _int(c.get("vlanId") or c.get("vlan")),
         "last_seen": _epoch(c.get("lastSeenAt")) or time.time(),
+        "details": client_details(c),
     }
+
+
+# Everything else Central says about a client, for the client list card: {our key: Central's keys}.
+DETAIL_FIELDS = {
+    "ipv6": ("ipv6",),
+    "status": ("status",),
+    "health": ("health", "experience"),
+    "connected_to": ("connectedTo",),
+    "connected_device_type": ("connectedDeviceType",),
+    "vlan_name": ("vlanName",),
+    "role": ("role", "userRole"),
+    "os": ("clientOperatingSystem", "osType"),
+    "category": ("clientCategory",),
+    "function": ("clientFunction",),
+    "channel": ("wirelessChannel",),
+    "bssid": ("bssid",),
+    "security": ("wirelessSecurity",),
+    "key_mgmt": ("keyManagement",),
+    "phy": ("phyType",),
+    "capabilities": ("clientCapabilities",),
+    "auth": ("authenticationType",),
+    "tunnel": ("tunnelType",),
+}
+
+
+def client_details(c: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, sources in DETAIL_FIELDS.items():
+        for src in sources:
+            if value := _text(c.get(src)):
+                out[key] = value
+                break
+    if since := _epoch(c.get("connectedAt")):
+        out["connected_since"] = since
+    return out
 
 
 def client_is_connected(c: dict[str, Any]) -> bool:
