@@ -108,6 +108,7 @@ class HpeCentralConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+            description_placeholders={"example_url": "https://us1.api.central.arubanetworks.com"},
         )
 
     async def async_step_sites(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

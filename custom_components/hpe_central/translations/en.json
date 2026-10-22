@@ -10,7 +10,7 @@
           "client_secret": "Client secret"
         },
         "data_description": {
-          "base_url": "For example US-1 is https://us1.api.central.arubanetworks.com."
+          "base_url": "For example US-1 is {example_url}."
         }
       },
       "sites": {
