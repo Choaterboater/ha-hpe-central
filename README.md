@@ -118,7 +118,9 @@ yet.
   client 2 to 4 minutes after it joined, so with 120 s sweeps *home* can take up to
   about 6 minutes. Client counts (per AP, per radio, per SSID) are taken from that
   list too, because the AP's and radio's own counts were seen to stay at 0.
-  Central gives SNR, not RSSI, so client rows carry `snr` and `rssi` is empty.
+  Central gives SNR, not RSSI, so the sensors' client rows carry `snr` and leave
+  `rssi` empty; only the client list card shows an estimate (`≈ RSSI`, SNR plus the
+  AP radio's noise floor).
 - **Home** on the first sweep that lists a client as connected; **away after 10
   minutes** (`AWAY_AFTER_SECONDS` in `const.py`) without being listed. A short drop
   does not count as leaving. Before its first sighting a client counts as away.
