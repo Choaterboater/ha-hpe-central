@@ -41,7 +41,8 @@ from datetime import datetime
 from typing import Any, Protocol
 
 from .api import CentralBusyError, CentralClient
-from .const import DETAIL_SECONDS
+from . import protobuf as pb
+from .const import CLIENT_STREAM_PATH, DETAIL_SECONDS
 from .errors import SourceAuthError, SourceError
 from .presence import mac_key
 
@@ -176,6 +177,21 @@ def port_sort_key(port: str) -> list[Any]:
     return [(0, int(p), "") if p.isdigit() else (1, 0, p.lower()) for p in re.split(r"(\d+)", str(port)) if p]
 
 
+_MEMBER_PORT = re.compile(r"^(?:[a-z]+-)?(\d+)/\d+/\d+$", re.IGNORECASE)
+
+
+def port_member(port: str) -> int | None:
+    """Stack member of a port: CX "3/1/14" is member 3, Juniper "ge-2/0/14" is member 2; None for others."""
+    m = _MEMBER_PORT.match(str(port))
+    return int(m.group(1)) if m else None
+
+
+def stack_members(dev: dict[str, Any]) -> list[int]:
+    """The members of a stack (a switch with ports on more than one member), else []."""
+    members = sorted({m for p in dev.get("ports") or {} if (m := port_member(p)) is not None})
+    return members if len(members) > 1 else []
+
+
 DEVICE_TYPES = {"ACCESS_POINT": "ap", "SWITCH": "switch", "GATEWAY": "gateway"}
 
 
@@ -249,6 +265,36 @@ DETAIL_FIELDS = {
     "auth": ("authenticationType",),
     "tunnel": ("tunnelType",),
 }
+
+
+def client_from_stream(data: bytes, by_serial: dict[str, str], site_filter: set[str]) -> Client | None:
+    """A connected client from one client-stream message (a CloudEvent holding a ClientState); else None."""
+    try:
+        event = pb.fields(data)
+        if "stats" in (pb.text(event, 4) or ""):
+            return None  # traffic counters, not a join
+        payload = pb.message(event, 8).get(2, [None])[-1] or event.get(6, [None])[-1]  # proto_data.value or binary_data
+        if not isinstance(payload, bytes):
+            return None
+        state = pb.message(pb.fields(payload), 1)  # StreamClientMessage.client_state
+        d = pb.message(state, 1)  # ClientDetails
+    except ValueError:
+        return None
+    mac, site = pb.text(d, 1), pb.text(d, 3)
+    if not mac_key(mac) or pb.number(d, 5) != 2 or (site_filter and site not in site_filter):  # 2 = CONNECTED
+        return None
+    wired = pb.number(state, 2) == 2
+    device = by_serial.get(str(pb.text(d, 6) or "").upper())
+    named = lambda v: v if v and mac_key(v) != mac_key(mac) else None  # noqa: E731
+    vlan = pb.number(d, 14)
+    return {
+        "mac": mac, "site_id": site, "ip": pb.text(d, 10), "user_name": named(pb.text(d, 8)),
+        "hostname": named(pb.text(d, 7)), "manufacture": pb.text(pb.message(d, 17), 2),
+        "ssid": None if wired else pb.text(state, 4), "ap_mac": None if wired else device, "rssi": None,
+        "snr": None if wired else pb.number(state, 10), "band": None if wired else band_label(pb.text(state, 5)),
+        "wired": wired, "port": pb.text(d, 16) if wired else None, "switch_mac": device if wired else None,
+        "vlan": vlan or None, "last_seen": time.time(),
+    }
 
 
 def client_details(c: dict[str, Any]) -> dict[str, Any]:
@@ -433,11 +479,12 @@ class CentralSource:
         self.site_filter = set(site_filter or [])
         self._sites: dict[str, dict[str, Any]] = {}
         self._details: dict[str, dict[str, Any]] = {}  # serial -> cached detail fields
+        self._by_serial: dict[str, str] = {}  # serial -> device key, from the last sweep, for the stream
         self._details_at: float | None = None
 
     @property
     def has_stream(self) -> bool:
-        return False
+        return True
 
     async def site_rows(self) -> dict[str, dict[str, Any]]:
         if not self._sites:
@@ -469,7 +516,7 @@ class CentralSource:
         stats = {str(r.get("serialNumber") or "").upper(): r for r in await self.client.aps()}
         stats.update({str(r.get("serialNumber") or "").upper(): r for r in await self.client.gateways()})
         raw = await self._raw_clients()
-        index = _ap_index(devices)
+        index = self._by_serial = _ap_index(devices)
         clients = [client_from_central(c, sid, index) for sid, c in raw]
         by_name = {name: sid for sid, name in sites.items()}
         alarms = [alarm_from_central(a, by_name) for a in await self.client.alerts()]
@@ -593,7 +640,11 @@ class CentralSource:
                 break
 
     async def stream(self, on_client, on_device, on_connected) -> None:
-        raise SourceError("HPE Central has no client stream")
+        def on_message(data: bytes) -> None:
+            if (c := client_from_stream(data, self._by_serial, self.site_filter)) is not None:
+                on_client(c)
+
+        await self.client.stream(CLIENT_STREAM_PATH, on_message, on_connected)
 
     # Controls. Central's token says nothing about what the API client may do, so
     # restart buttons are always offered (disabled by default); a refusal is shown

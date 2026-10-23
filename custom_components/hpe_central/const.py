@@ -8,6 +8,7 @@ CONF_CLIENT_SECRET = "client_secret"
 CONF_TENANT_ID = "tenant_id"
 CONF_SITES = "sites"  # options: site ids to include; empty = all
 CONF_TRACKED = "tracked"  # options: {"02:00:00:00:00:01": "Name"}
+CONF_SCAN = "scan_seconds"  # options: seconds between sweeps
 CONF_ADD_ALL = "add_all_clients"  # options: also add every other client, disabled until enabled
 DEFAULT_ADD_ALL = True
 
@@ -45,8 +46,10 @@ EVENT_ALARM = "alarm"
 EVENT_TYPES = [EVENT_CLIENT_JOINED, EVENT_CLIENT_LEFT, EVENT_DEVICE_DOWN, EVENT_DEVICE_UP, EVENT_ALARM]
 
 # REST sweep: devices, APs, gateways and alerts per tenant, clients per site with
-# devices. Central has no client stream, so this is the only source: every 120 s.
-POLL_SECONDS = 120
+# devices: every POLL_SECONDS by default, changeable in the options (MIN..MAX).
+POLL_SECONDS = 30
+MIN_POLL_SECONDS = 15
+MAX_POLL_SECONDS = 600
 # Per-device detail calls (AP radios and detail, switch interfaces / PoE / VLANs)
 # cost one request each, so they run at most this often and are cached between.
 SAFETY_SWEEP_SECONDS = 300
@@ -75,3 +78,6 @@ STREAM_HEARTBEAT_SECONDS = 30
 # Central allows 10 requests per second per account; stay well under it so other
 # tools using the same API client keep room.
 MIN_REQUEST_GAP_SECONDS = 0.35
+
+# Central's client stream (Advanced subscription): client joins in seconds. Sweeps still run.
+CLIENT_STREAM_PATH = "/network-monitoring/v1/clients-events"

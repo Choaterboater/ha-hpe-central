@@ -81,6 +81,24 @@ def network_device_info(hass: HomeAssistant, entry: ConfigEntry, dev: Device) ->
     return info
 
 
+def member_uid(entry: ConfigEntry, mac: str, member: int) -> str:
+    return f"{device_uid(entry, mac)}_member_{member}"
+
+
+def member_device_info(hass: HomeAssistant, entry: ConfigEntry, dev: Device, member: int) -> DeviceInfo:
+    """One switch of a stack, under the stack's device, so its port entities are listed together."""
+    info = DeviceInfo(
+        identifiers={(DOMAIN, member_uid(entry, dev["mac"], member))},
+        name=f"{dev['name']} member {member}",
+        manufacturer=MANUFACTURER,
+        model=dev.get("model") or DEVICE_MODELS["switch"],
+    )
+    # The stack's own device may not be registered yet on the first sweep: make sure it is.
+    stack = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id, **network_device_info(hass, entry, dev))
+    info["via_device_id"] = stack.id
+    return info
+
+
 def client_device_info(entry: ConfigEntry, mac: str) -> DeviceInfo:
     """Links client sensors to the device the tracker platform made for a picked client."""
     return DeviceInfo(identifiers={(DOMAIN, client_uid(entry, mac))})

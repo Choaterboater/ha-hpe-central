@@ -11,6 +11,9 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResu
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -25,6 +28,7 @@ from .api import CentralAuthError, CentralError, clean_base_url
 from .const import (
     CENTRAL_CLUSTERS,
     CONF_ADD_ALL,
+    CONF_SCAN,
     CONF_BASE_URL,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
@@ -34,6 +38,9 @@ from .const import (
     DEFAULT_ADD_ALL,
     DEFAULT_BASE_URL,
     DOMAIN,
+    MAX_POLL_SECONDS,
+    MIN_POLL_SECONDS,
+    POLL_SECONDS,
     PICKER_SECONDS,
 )
 from .coordinator import SeenClients, known_name
@@ -154,6 +161,7 @@ class HpeCentralOptionsFlow(OptionsFlow):
         self._picked: list[str] = []
         self._hostnames: dict[str, str] = {}
         self._add_all = DEFAULT_ADD_ALL
+        self._scan = POLL_SECONDS
         self._site_ids: list[str] = []
         self._all_sites: dict[str, str] = {}
 
@@ -170,6 +178,7 @@ class HpeCentralOptionsFlow(OptionsFlow):
             if not errors:
                 self._picked = list(dict.fromkeys(m for m in picked if m))
                 self._add_all = user_input.get(CONF_ADD_ALL, DEFAULT_ADD_ALL)
+                self._scan = int(user_input.get(CONF_SCAN, POLL_SECONDS))
                 self._site_ids = _site_choice(user_input.get(CONF_SITES, []), self._all_sites)
                 if not self._picked:
                     return self.async_create_entry(data=self._options({}))
@@ -189,6 +198,10 @@ class HpeCentralOptionsFlow(OptionsFlow):
                     vol.Optional(
                         CONF_ADD_ALL, default=self.config_entry.options.get(CONF_ADD_ALL, DEFAULT_ADD_ALL)
                     ): BooleanSelector(),
+                    vol.Optional(
+                        CONF_SCAN, default=self.config_entry.options.get(CONF_SCAN, POLL_SECONDS)
+                    ): NumberSelector(NumberSelectorConfig(min=MIN_POLL_SECONDS, max=MAX_POLL_SECONDS, step=5,
+                                                           unit_of_measurement="s", mode=NumberSelectorMode.BOX)),
                     vol.Optional(
                         CONF_SITES, default=self.config_entry.options.get(CONF_SITES) or list(self._all_sites)
                     ): _sites_selector(self._all_sites),
@@ -219,7 +232,7 @@ class HpeCentralOptionsFlow(OptionsFlow):
         )
 
     def _options(self, names: dict[str, str]) -> dict[str, Any]:
-        return {CONF_SITES: self._site_ids, CONF_TRACKED: names, CONF_ADD_ALL: self._add_all}
+        return {CONF_SITES: self._site_ids, CONF_TRACKED: names, CONF_ADD_ALL: self._add_all, CONF_SCAN: self._scan}
 
     async def _seen(self) -> dict[str, dict[str, Any]]:
         """Clients remembered by the running entry (or read from its store when it is not loaded)."""

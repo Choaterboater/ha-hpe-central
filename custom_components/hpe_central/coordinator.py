@@ -20,6 +20,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     AWAY_CHECK_SECONDS,
     CONF_ADD_ALL,
+    CONF_SCAN,
     CONF_TRACKED,
     DEFAULT_ADD_ALL,
     DOMAIN,
@@ -136,9 +137,10 @@ class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
             _LOGGER,
             config_entry=entry,
             name=f"{DOMAIN} {entry.title}",
-            update_interval=timedelta(seconds=POLL_SECONDS),
+            update_interval=timedelta(seconds=entry.options.get(CONF_SCAN, POLL_SECONDS)),
         )
         self.source = source
+        self.poll_seconds: int = int(entry.options.get(CONF_SCAN, POLL_SECONDS))
         self.picked: dict[str, str] = tracked(entry)
         self.add_all: bool = entry.options.get(CONF_ADD_ALL, DEFAULT_ADD_ALL)
         self.tracker = PresenceTracker(set(self.picked))
@@ -155,7 +157,7 @@ class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
     # --- REST sweep -------------------------------------------------------
 
     def _base_interval(self) -> float:
-        return SAFETY_SWEEP_SECONDS if self.stream_connected else POLL_SECONDS
+        return self.poll_seconds  # the stream only brings joins; sweeps keep devices and departures fresh
 
     def _set_interval(self) -> None:
         self.update_interval = timedelta(seconds=max(self._base_interval(), self._backoff))
@@ -215,7 +217,7 @@ class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
     def _failed(self, err: SourceError, now: float) -> NetworkData:
         """Keep the last state through short trouble; unavailable after that, never not_home."""
         if isinstance(err, SourceBusyError):
-            self._backoff = min(MAX_BACKOFF_SECONDS, max(self._backoff * 2 or POLL_SECONDS * 2, err.retry_after or 0))
+            self._backoff = min(MAX_BACKOFF_SECONDS, max(self._backoff * 2 or self.poll_seconds * 2, err.retry_after or 0))
             self._set_interval()
         self.source.forget_sites()  # sites may have changed; ask again next time
         if self.data is not None and (self.stream_connected or self._recent(now, UNAVAILABLE_AFTER_SECONDS)):
@@ -302,7 +304,7 @@ class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
         outage freezes the state instead of turning everyone not_home.
         """
         now = time.time()
-        fresh = self.stream_connected or self._recent(now, POLL_SECONDS * 2 + 15)
+        fresh = self.stream_connected or self._recent(now, self.poll_seconds * 2 + 15)
         if self.data is None or not fresh:
             return
         if left := self.tracker.evaluate(now):
@@ -345,7 +347,7 @@ class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
 
     @callback
     def _stream_up(self) -> None:
-        _LOGGER.info("Central stream connected; sweeping every %ss", SAFETY_SWEEP_SECONDS)
+        _LOGGER.info("Central client stream connected; sweeping every %ss", self.poll_seconds)
         self.stream_connected = True
         self._set_interval()
         self._resync()
@@ -356,7 +358,7 @@ class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
         self.stream_connected = False
         self._set_interval()
         if was:
-            _LOGGER.info("Central stream down (%s); sweeping every %ss", reason, POLL_SECONDS)
+            _LOGGER.info("Central stream down (%s); sweeping every %ss", reason, self.poll_seconds)
             self._resync()
         else:
             _LOGGER.debug("Central stream not connected: %s", reason)

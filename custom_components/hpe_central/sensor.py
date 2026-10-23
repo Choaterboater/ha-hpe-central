@@ -114,6 +114,8 @@ def _radio(band: str, field: str) -> Callable[[Device], Any]:
 
 
 def _ap_clients(c: HpeCentralCoordinator, d: Device) -> dict[str, Any] | None:
+    if d.get("type") == "switch":
+        return _switch_clients(c, d)
     if d.get("type") != "ap":
         return None
     rows = [x for x in c.net.clients.values() if x.home and x.ap_mac == d["mac"]]
@@ -128,6 +130,13 @@ def _ap_clients(c: HpeCentralCoordinator, d: Device) -> dict[str, Any] | None:
         "by_band": {label: sum(1 for x in rows if x.band == label) for label in BANDS.values()},
         "by_ssid": dict(sorted(by_ssid.items())),
     }
+
+
+def _switch_clients(c: HpeCentralCoordinator, d: Device) -> dict[str, Any]:
+    """The wired clients on a switch (every member of a stack), with the port each is on."""
+    rows = [x for x in c.net.clients.values() if x.home and x.wired and x.switch_mac == d["mac"]]
+    return {"clients": _by_name([{"name": _name(c, x), "mac": mac_pretty(x.mac), "ip": x.ip, "port": x.port,
+                                   "vlan": x.vlan, "vendor": x.manufacture} for x in rows])}
 
 
 def _uplink_state(d: Device) -> str | None:
@@ -215,6 +224,13 @@ CLIENT_SENSORS = (
     CentralSensorDescription(key="ip", translation_key="ip", value_fn=lambda c, s: s.ip),
     CentralSensorDescription(key="ssid", translation_key="ssid", value_fn=lambda c, s: s.ssid),
     CentralSensorDescription(key="ap", translation_key="ap", value_fn=lambda c, s: c.device_name(s.ap_mac or s.switch_mac)),
+    # Central reports SNR only; Signal is SNR + the AP radio's noise floor (empty for wired clients).
+    CentralSensorDescription(key="rssi", translation_key="rssi", device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                          native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+                          state_class=SensorStateClass.MEASUREMENT, value_fn=lambda c, s: c.rssi_estimate(s)),
+    CentralSensorDescription(key="snr", translation_key="snr", native_unit_of_measurement="dB",
+                          state_class=SensorStateClass.MEASUREMENT,
+                          value_fn=lambda c, s: None if s.wired else s.snr),
 )
 
 

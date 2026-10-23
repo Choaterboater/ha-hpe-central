@@ -103,8 +103,14 @@ def no_pacing(monkeypatch):
     monkeypatch.setattr("custom_components.hpe_central.api.MIN_REQUEST_GAP_SECONDS", 0)
 
 
+@pytest.fixture(autouse=True)
+def no_stream(monkeypatch):
+    """The fake Central has no websocket: the client stream is off unless a test turns it on."""
+    monkeypatch.setattr("custom_components.hpe_central.source.CentralSource.has_stream", property(lambda self: False))
+
+
 def central(aioclient_mock, clients=None, devices=None, alerts=None, status=200, token_status=200,
-            radios_status=200, switch_status=200):
+            radios_status=200, switch_status=200, interfaces=None):
     aioclient_mock.clear_requests()
     aioclient_mock.post(TOKEN_URL, status=token_status,
                         json={"access_token": jwt({"platform_customer_id": TENANT}), "expires_in": 7199, "token_type": "Bearer"})
@@ -121,7 +127,8 @@ def central(aioclient_mock, clients=None, devices=None, alerts=None, status=200,
     mon = f"{BASE}/network-monitoring/v1"
     aioclient_mock.get(f"{mon}/aps/{AP_SERIAL}/radios", status=radios_status, json=AP_RADIOS)
     aioclient_mock.get(f"{mon}/aps/{AP_SERIAL}", json=AP_DETAIL)
-    for path, rows in (("interfaces", SW_INTERFACES), ("interface-poe", SW_POE), ("vlans", SW_VLANS)):
+    for path, rows in (("interfaces", interfaces if interfaces is not None else SW_INTERFACES), ("interface-poe", SW_POE),
+                       ("vlans", SW_VLANS)):
         aioclient_mock.get(f"{mon}/switches/{SW_SERIAL}/{path}?limit=1000", status=switch_status,
                            json={"items": rows, "count": len(rows), "total": len(rows), "offset": "0"})
 
@@ -214,7 +221,7 @@ async def test_options_flow_labels_sites_and_picking(hass, aioclient_mock):
     r = await hass.config_entries.options.async_configure(r["flow_id"], {"clients": [PHONE], "extra_mac": "", "sites": [SITE]})
     r = await hass.config_entries.options.async_configure(r["flow_id"], {PHONE: "Test Phone"})
     await settle(hass)
-    assert e.options == {"sites": [SITE], "tracked": {PHONE: "Test Phone"}, "add_all_clients": True}
+    assert e.options == {"sites": [SITE], "tracked": {PHONE: "Test Phone"}, "add_all_clients": True, "scan_seconds": 30}
     s = hass.states.get(ENTITY)
     assert s.state == STATE_HOME and s.attributes["ip"] == "192.0.2.10" and s.attributes["ap_name"] == "AP 1"
     # Site 2 was left out.
@@ -421,6 +428,68 @@ async def test_switch_ports_poe_vlans(hass, aioclient_mock):
     assert ent.unique_id == f"{TENANT}_dev_020000000005_port_1/1/1"
 
 
+# A six-member CX stack is one Central device whose ports are named <member>/1/<port>.
+STACK = [{"name": f"{m}/1/{p}", "id": f"{m}/1/{p}", "type": "GigabitEthernet", "operStatus": "Up" if p == 1 else "Down",
+          "speed": 1000} for m in range(1, 7) for p in (10, 2, 1)]
+
+
+async def test_stack_ports_are_grouped_per_member(hass, aioclient_mock):
+    central(aioclient_mock, [PHONE_A, {**PRINTER, "port": "3/1/1"}], interfaces=STACK)
+    e = await setup(hass)
+    ports = hass.states.get("sensor.switch_1_ports_up")
+    assert ports.state == "6" and ports.attributes["ports_total"] == 18
+    assert [p["port"] for p in ports.attributes["ports"]][:6] == ["1/1/1", "1/1/2", "1/1/10", "2/1/1", "2/1/2", "2/1/10"]
+    dev_reg, ent_reg = dr.async_get(hass), er.async_get(hass)
+    stack = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_dev_020000000005"), e.entry_id)
+    for member in range(1, 7):
+        entity_id = ent_reg.async_get_entity_id("binary_sensor", DOMAIN, f"{TENANT}_dev_020000000005_port_{member}/1/1")
+        device = dev_reg.async_get(ent_reg.async_get(entity_id).device_id)
+        # Each member's ports sit on that member's device, under the stack.
+        assert (device.name, device.via_device_id) == (f"Switch 1 member {member}", stack.id)
+    # The online sensor and the port list stay on the stack itself.
+    online = ent_reg.async_get("binary_sensor.switch_1_online")
+    assert online.device_id == stack.id
+
+
+async def test_single_switch_ports_stay_on_the_switch(hass, aioclient_mock):
+    central(aioclient_mock, [PRINTER])
+    e = await setup(hass)
+    dev_reg, ent_reg = dr.async_get(hass), er.async_get(hass)
+    switch = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_dev_020000000005"), e.entry_id)
+    assert ent_reg.async_get("binary_sensor.switch_1_port_1_1_1").device_id == switch.id
+    assert not [d for d in dr.async_entries_for_config_entry(dev_reg, e.entry_id) if "member" in d.name]
+
+
+async def test_switch_lists_its_wired_clients(hass, aioclient_mock):
+    central(aioclient_mock, [PHONE_A, {**PRINTER, "port": "3/1/1", "vlanId": "10"}], interfaces=STACK)
+    await setup(hass)
+    assert hass.states.get("sensor.switch_1_clients").attributes["clients"] == [
+        {"name": "ExampleVendor a3:c7:c2", "mac": "02:00:00:a3:c7:c2", "ip": "192.0.2.12", "port": "3/1/1", "vlan": 10,
+         "vendor": "ExampleVendor"}]  # the Wi-Fi phone is not on the switch
+
+
+async def test_client_signal_and_snr_sensors(hass, aioclient_mock):
+    central(aioclient_mock, [{**PHONE_A, "snr": 27}])
+    await setup(hass)
+    # Central gives SNR only: the 5 GHz radio's -90 dBm noise floor + 27 dB.
+    signal = hass.states.get("sensor.test_phone_signal")
+    assert signal.state == "-63" and signal.attributes["unit_of_measurement"] == "dBm"
+    assert signal.attributes["device_class"] == "signal_strength" and signal.attributes["state_class"] == "measurement"
+    snr = hass.states.get("sensor.test_phone_snr")
+    assert snr.state == "27" and snr.attributes["unit_of_measurement"] == "dB"
+    assert snr.attributes["state_class"] == "measurement"  # recorded, so it can be graphed
+    # A main sensor next to IP address and SSID, not a hidden diagnostic.
+    assert er.async_get(hass).async_get("sensor.test_phone_snr").entity_category is None
+
+
+async def test_wired_client_has_no_signal(hass, aioclient_mock):
+    wired_phone = {**PRINTER, "macAddress": PHONE, "snr": 30}
+    central(aioclient_mock, [wired_phone])
+    await setup(hass)
+    assert hass.states.get("sensor.test_phone_signal").state == "unknown"
+    assert hass.states.get("sensor.test_phone_snr").state == "unknown"
+
+
 async def test_offline_switch_gets_no_detail_calls(hass, aioclient_mock):
     offline = [DEVICES[0], {**DEVICES[1], "status": "OFFLINE"}, DEVICES[2]]
     central(aioclient_mock, [PHONE_A], devices=offline)
@@ -435,13 +504,40 @@ async def test_detail_calls_cached_between_sweeps(hass, aioclient_mock, freezer)
     await setup(hass)
     first = detail_calls(aioclient_mock)
     assert first == 5  # AP radios + detail, switch interfaces + PoE + VLANs
-    await tick(hass, freezer)  # 121 s
-    await tick(hass, freezer)  # 242 s
+    await tick(hass, freezer, 121)  # 121 s
+    await tick(hass, freezer, 121)  # 242 s
     assert calls(aioclient_mock, "/network-monitoring/v1/devices") == 3
     assert detail_calls(aioclient_mock) == first
-    await tick(hass, freezer)  # 363 s: a detail cycle is due
+    await tick(hass, freezer, 121)  # 363 s: a detail cycle is due
     assert detail_calls(aioclient_mock) == 2 * first
     assert hass.states.get("sensor.ap_1_radios").state == "2"
+
+
+async def test_sweeps_every_30_s_by_default_and_the_option_changes_it(hass, aioclient_mock, freezer):
+    central(aioclient_mock, [PHONE_A])
+    await setup(hass)
+    await tick(hass, freezer, 31)
+    assert calls(aioclient_mock, "/network-monitoring/v1/devices") == 2
+
+    central(aioclient_mock, [PHONE_A])
+    e = entry(options={"sites": [], "tracked": {}, "add_all_clients": True, "scan_seconds": 90})
+    e.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(e.entry_id)
+    await settle(hass)
+    assert e.runtime_data.update_interval.total_seconds() == 90
+
+
+async def test_a_streamed_join_marks_a_client_home_before_the_next_sweep(hass, aioclient_mock):
+    from custom_components.hpe_central.source import client_from_stream
+    from tests.test_stream import event
+
+    central(aioclient_mock, [])  # the sweep does not list the phone yet
+    e = await setup(hass)
+    assert hass.states.get(ENTITY).state == STATE_NOT_HOME
+    c = e.runtime_data
+    c._stream_client(client_from_stream(event(mac=PHONE, site=SITE), {AP_SERIAL: "020000000001"}, set()))
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY).state == STATE_HOME
 
 
 async def test_detail_errors_do_not_fail_the_sweep(hass, aioclient_mock, freezer):

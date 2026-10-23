@@ -9,7 +9,8 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import HpeCentralConfigEntry
 from .coordinator import HpeCentralCoordinator
-from .entity import CentralEntity, add_entities_as_seen, device_uid, network_device_info
+from .entity import CentralEntity, add_entities_as_seen, device_uid, member_device_info, network_device_info
+from .source import port_member, stack_members
 
 
 async def async_setup_entry(
@@ -56,7 +57,11 @@ class PortUp(CentralEntity, BinarySensorEntity):
         self._port = port
         self._attr_unique_id = f"{device_uid(entry, mac)}_port_{port}"
         self._attr_translation_placeholders = {"port": port}
-        self._attr_device_info = network_device_info(c.hass, entry, c.net.devices[mac])
+        dev = c.net.devices[mac]
+        # In a stack each port sits on its member's device; otherwise on the switch.
+        member = port_member(port)
+        self._attr_device_info = (member_device_info(c.hass, entry, dev, member) if member in stack_members(dev)
+                                  else network_device_info(c.hass, entry, dev))
 
     @property
     def available(self) -> bool:

@@ -15,7 +15,7 @@ from typing import Any
 
 import aiohttp
 
-from .const import MIN_REQUEST_GAP_SECONDS, REQUEST_TIMEOUT_SECONDS, TOKEN_URL
+from .const import MIN_REQUEST_GAP_SECONDS, REQUEST_TIMEOUT_SECONDS, STREAM_HEARTBEAT_SECONDS, TOKEN_URL
 from .errors import SourceAuthError, SourceBusyError, SourceError
 
 
@@ -101,6 +101,29 @@ class CentralClient:
     def tenant_id(self) -> str | None:
         """The GreenLake workspace the credentials belong to (from the token), if present."""
         return self.claims.get("platform_customer_id") or None
+
+    # --- stream --------------------------------------------------------------
+
+    async def stream(self, path: str, on_message, on_connected) -> None:
+        """One websocket connection to a streaming endpoint, until it closes (Central closes it when the token expires)."""
+        token = await self.token()
+        url = "wss" + self._base[len("https"):] if self._base.startswith("https") else self._base
+        try:
+            async with self._session.ws_connect(
+                url + path, headers={"Authorization": f"Bearer {token}"}, heartbeat=STREAM_HEARTBEAT_SECONDS,
+            ) as ws:
+                on_connected()
+                async for msg in ws:
+                    if msg.type == aiohttp.WSMsgType.BINARY:
+                        on_message(msg.data)
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        break
+        except aiohttp.WSServerHandshakeError as err:
+            if err.status in (401, 403):
+                raise CentralAuthError(f"Central refused the client stream ({err.status}): it needs an Advanced subscription") from err
+            raise CentralError(f"Central client stream answered {err.status}") from err
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise CentralError(f"Central client stream: {type(err).__name__}") from err
 
     # --- requests ------------------------------------------------------------
 

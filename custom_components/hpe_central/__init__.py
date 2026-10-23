@@ -75,6 +75,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: HpeCentralConfigEntry) -
     entry.async_on_unload(coordinator.async_add_listener(lambda: ensure_site_devices(hass, entry, coordinator)))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     coordinator.async_start_away_check()
+    coordinator.async_start_stream()
     entry.async_on_unload(entry.add_update_listener(_options_changed))
     return True
 
@@ -100,7 +101,8 @@ def _remove_stale_devices(hass: HomeAssistant, entry: ConfigEntry, coordinator: 
     keep = {f"{tenant}_site_{s}" for s in coordinator.net.sites} | {f"{tenant}_dev_{d}" for d in coordinator.net.devices}
     dev_reg = dr.async_get(hass)
     for dev in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
-        idents = [i for d, i in dev.identifiers if d == DOMAIN]
+        # A stack member's device (<switch>_member_<n>) stays as long as its switch does.
+        idents = [i.split("_member_")[0] for d, i in dev.identifiers if d == DOMAIN]
         if any(i.startswith((f"{tenant}_site_", f"{tenant}_dev_")) for i in idents) and not keep.intersection(idents):
             dev_reg.async_remove_device(dev.id)
 
