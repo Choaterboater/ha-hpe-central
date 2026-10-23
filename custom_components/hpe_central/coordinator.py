@@ -21,6 +21,7 @@ from .const import (
     AWAY_CHECK_SECONDS,
     CONF_ADD_ALL,
     CONF_SCAN,
+    CONF_TENANT_ID,
     CONF_TRACKED,
     DEFAULT_ADD_ALL,
     DOMAIN,
@@ -290,8 +291,16 @@ class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
         }
 
     def device_name(self, mac: str | None) -> str | None:
+        """An AP / switch / gateway's name: its rename in Home Assistant, else Central's name, else the MAC."""
         dev = self.net.devices.get(mac or "")
-        return dev["name"] if dev else None
+        if not dev:
+            return None
+        assert self.config_entry
+        entry = dr.async_get(self.hass).async_get_device_by_identifier(
+            (DOMAIN, f"{self.config_entry.data[CONF_TENANT_ID]}_dev_{dev['mac']}"), self.config_entry.entry_id)
+        if entry is not None and entry.name_by_user:
+            return entry.name_by_user
+        return dev["name"] or mac_pretty(dev["mac"]) or dev["mac"]
 
     # --- away check between sweeps -----------------------------------------
 

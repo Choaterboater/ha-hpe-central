@@ -650,6 +650,20 @@ async def test_gear_offers_80211_capabilities_phy_and_bssid_columns(hass, aiocli
     assert {"capabilities", "phy", "bssid"} <= set(values)
 
 
+async def test_connected_to_uses_the_ap_rename_in_home_assistant(hass, aioclient_mock):
+    central(aioclient_mock, [PHONE_A])
+    e = await setup(hass)
+    assert hass.states.get("sensor.test_phone_connected_to").state == "AP 1"  # Central's name, not renamed
+    dev_reg = dr.async_get(hass)
+    ap = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_dev_020000000001"), e.entry_id)
+    dev_reg.async_update_device(ap.id, name_by_user="Living room AP")
+    await e.runtime_data.async_refresh()
+    await settle(hass)
+    assert hass.states.get("sensor.test_phone_connected_to").state == "Living room AP"
+    # The client's own name is untouched.
+    assert hass.states.get(ENTITY).name == "Test Phone"
+
+
 async def test_detail_errors_do_not_fail_the_sweep(hass, aioclient_mock, freezer):
     central(aioclient_mock, [PHONE_A], radios_status=404, switch_status=404)
     e = await setup(hass)
