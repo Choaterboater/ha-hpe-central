@@ -593,6 +593,23 @@ async def test_seen_clients_store(hass, aioclient_mock, freezer, hass_storage):
     assert seen_key(e) not in hass_storage
 
 
+async def test_seen_clients_are_saved_even_with_sweeps_shorter_than_the_save_delay(hass, aioclient_mock, freezer,
+                                                                                   hass_storage):
+    import time
+
+    e = entry()
+    hass_storage[seen_key(e)] = {"version": 1, "key": seen_key(e), "data": {"clients": {
+        "020000000041": {"mac": "020000000041", "hostname": "ancient", "last_seen": time.time() - 31 * 86400}}}}
+    central(aioclient_mock, [PHONE_A, PRINTER])
+    await setup(hass, e)
+    # 30 s sweeps, each listing clients: the 60 s save must still happen, not be pushed back by every sweep.
+    await tick(hass, freezer, 31)
+    await tick(hass, freezer, 31)
+    saved = hass_storage[seen_key(e)]["data"]["clients"]
+    assert set(saved) == {"020000000076", "020000a3c7c2"}  # the 31-day-old client is not written back
+    assert "020000000041" not in saved
+
+
 async def test_options_picker_lists_remembered_clients(hass, aioclient_mock, hass_storage):
     import time
 

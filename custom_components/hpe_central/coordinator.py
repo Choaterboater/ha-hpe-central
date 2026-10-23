@@ -93,6 +93,7 @@ class SeenClients:
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
         self._store = seen_store(hass, entry_id)
         self.rows: dict[str, dict[str, Any]] = {}  # mac_key -> {mac, last_seen, hostname, ...}
+        self._save_pending = False
 
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
@@ -107,7 +108,11 @@ class SeenClients:
                 row.update({k: c[k] for k in SEEN_KEYS if c.get(k) not in (None, "")})
                 row.update(mac=m, last_seen=now)
         self._prune(now)
-        self._store.async_delay_save(self._data, SEEN_SAVE_DELAY_SECONDS)
+        # One pending save at a time: asking again on every sweep would push it back each time, and with
+        # sweeps shorter than the delay it would never run. _data reads the rows as they are at write time.
+        if not self._save_pending:
+            self._save_pending = True
+            self._store.async_delay_save(self._data, SEEN_SAVE_DELAY_SECONDS)
 
     async def async_flush(self) -> None:
         await self._store.async_save(self._data())
@@ -116,6 +121,7 @@ class SeenClients:
         self.rows = {m: r for m, r in self.rows.items() if now - float(r.get("last_seen") or 0) < SEEN_KEEP_SECONDS}
 
     def _data(self) -> dict[str, Any]:
+        self._save_pending = False
         return {"clients": self.rows}
 
 
