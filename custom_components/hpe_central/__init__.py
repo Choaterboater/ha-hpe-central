@@ -137,8 +137,17 @@ def _sync_client_registry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             continue
         mac = m.group(1)
         if ent.domain != "device_tracker":
-            if mac not in picked:
+            # Signal and SNR exist for every Wi-Fi client with "add all" on; the other client sensors only when picked.
+            signal = m.group(2) in ("_client_rssi", "_client_snr")
+            if mac in picked:
+                if signal and ent.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
+                    ent_reg.async_update_entity(ent.entity_id, disabled_by=None)
+            elif not (add_all and signal):
                 ent_reg.async_remove(ent.entity_id)
+            elif ent.device_id is not None:
+                ent_reg.async_update_entity(
+                    ent.entity_id, device_id=None, disabled_by=er.RegistryEntryDisabler.INTEGRATION
+                )
         elif mac in picked:
             device = devices[mac]
             if ent.device_id != device.id:

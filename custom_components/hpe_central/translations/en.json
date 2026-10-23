@@ -39,12 +39,16 @@
           "extra_mac": "MAC address not listed",
           "add_all_clients": "Add all other clients (disabled until you enable them)",
           "sites": "Sites",
-          "scan_seconds": "Check Central every (seconds)"
+          "scan_seconds": "Check Central every (seconds)",
+          "client_columns": "Client list columns",
+          "client_layout": "Client list layout"
         },
         "data_description": {
           "add_all_clients": "Every client Central reports gets a tracker you can enable in one click under Entities. Ticked clients are always enabled and get their own device.",
           "sites": "Leave all ticked to include every site, also ones added later.",
-          "scan_seconds": "How often clients and devices are read. 30 s finds a new client within about 30 s of Central listing it; Central itself lists clients 2 to 4 minutes after they join. Lower means more API calls."
+          "scan_seconds": "How often clients and devices are read. 30 s finds a new client within about 30 s of Central listing it; Central itself lists clients 2 to 4 minutes after they join. Lower means more API calls.",
+          "client_columns": "Columns of the HPE Client list card (Client is always first). A card that picks its own columns in the card editor keeps them.",
+          "client_layout": "Always columns, or a list on narrow screens. A card that sets its own layout keeps it."
         }
       },
       "names": {

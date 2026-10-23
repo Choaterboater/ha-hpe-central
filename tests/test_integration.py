@@ -221,7 +221,9 @@ async def test_options_flow_labels_sites_and_picking(hass, aioclient_mock):
     r = await hass.config_entries.options.async_configure(r["flow_id"], {"clients": [PHONE], "extra_mac": "", "sites": [SITE]})
     r = await hass.config_entries.options.async_configure(r["flow_id"], {PHONE: "Test Phone"})
     await settle(hass)
-    assert e.options == {"sites": [SITE], "tracked": {PHONE: "Test Phone"}, "add_all_clients": True, "scan_seconds": 30}
+    assert e.options == {"sites": [SITE], "tracked": {PHONE: "Test Phone"}, "add_all_clients": True, "scan_seconds": 30,
+                         "client_columns": ["ip", "network", "connected_to", "signal", "category"],
+                         "client_layout": "table"}
     s = hass.states.get(ENTITY)
     assert s.state == STATE_HOME and s.attributes["ip"] == "192.0.2.10" and s.attributes["ap_name"] == "AP 1"
     # Site 2 was left out.
@@ -538,6 +540,56 @@ async def test_a_streamed_join_marks_a_client_home_before_the_next_sweep(hass, a
     c._stream_client(client_from_stream(event(mac=PHONE, site=SITE), {AP_SERIAL: "020000000001"}, set()))
     await hass.async_block_till_done()
     assert hass.states.get(ENTITY).state == STATE_HOME
+
+
+async def test_every_wifi_client_gets_signal_and_snr_sensors_disabled(hass, aioclient_mock):
+    other = {**PHONE_A, "macAddress": "02:00:00:00:00:88", "hostName": "tablet-b", "snr": 25}
+    central(aioclient_mock, [PHONE_A, other, PRINTER])
+    await setup(hass)
+    ent_reg = er.async_get(hass)
+    for key in ("rssi", "snr"):
+        ent = ent_reg.async_get(ent_reg.async_get_entity_id("sensor", DOMAIN, f"{TENANT}_020000000088_client_{key}"))
+        # Not picked: there, but disabled until enabled under Entities, and on no device of its own.
+        assert ent is not None and ent.disabled_by is er.RegistryEntryDisabler.INTEGRATION and ent.device_id is None
+        assert ent.original_name == f"tablet-b {'Signal' if key == 'rssi' else 'SNR'}"
+    # A wired client has no signal: no sensors for it.
+    assert ent_reg.async_get_entity_id("sensor", DOMAIN, f"{TENANT}_020000a3c7c2_client_rssi") is None
+    # The picked client's own Signal and SNR stay enabled.
+    assert hass.states.get("sensor.test_phone_signal") is not None and hass.states.get("sensor.test_phone_snr") is not None
+
+
+async def test_enabled_signal_sensor_of_an_unpicked_client_records_a_value(hass, aioclient_mock):
+    other = {**PHONE_A, "macAddress": "02:00:00:00:00:88", "hostName": "tablet-b", "snr": 25}
+    central(aioclient_mock, [other])
+    e = await setup(hass)
+    ent_reg = er.async_get(hass)
+    entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, f"{TENANT}_020000000088_client_snr")
+    ent_reg.async_update_entity(entity_id, disabled_by=None)
+    await hass.config_entries.async_reload(e.entry_id)
+    await settle(hass)
+    snr = hass.states.get(entity_id)
+    assert snr.state == "25" and snr.attributes["state_class"] == "measurement"
+
+
+async def test_without_add_all_unpicked_clients_get_no_signal_sensors(hass, aioclient_mock):
+    other = {**PHONE_A, "macAddress": "02:00:00:00:00:88", "hostName": "tablet-b"}
+    central(aioclient_mock, [other])
+    await setup(hass, entry(options={"sites": [], "tracked": {}, "add_all_clients": False}))
+    assert er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{TENANT}_020000000088_client_snr") is None
+
+
+async def test_client_list_columns_and_layout_come_from_the_options(hass, aioclient_mock, hass_ws_client):
+    central(aioclient_mock, [PHONE_A])
+    e = await setup(hass)
+    r = await hass.config_entries.options.async_init(e.entry_id)
+    assert {"client_columns", "client_layout"} <= set(r["data_schema"].schema)
+    r = await hass.config_entries.options.async_configure(r["flow_id"], {
+        "clients": [], "extra_mac": "", "sites": [], "client_columns": ["ip", "snr"], "client_layout": "list"})
+    await settle(hass)
+    assert e.options["client_columns"] == ["ip", "snr"] and e.options["client_layout"] == "list"
+    ws = await hass_ws_client(hass)
+    await ws.send_json({"id": 1, "type": "hpe_central/clients"})
+    assert (await ws.receive_json())["result"]["settings"] == {"columns": ["ip", "snr"], "layout": "list"}
 
 
 async def test_detail_errors_do_not_fail_the_sweep(hass, aioclient_mock, freezer):

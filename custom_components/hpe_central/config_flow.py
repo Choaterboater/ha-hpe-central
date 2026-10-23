@@ -27,7 +27,11 @@ from . import client_for
 from .api import CentralAuthError, CentralError, clean_base_url
 from .const import (
     CENTRAL_CLUSTERS,
+    CLIENT_COLUMNS,
+    CLIENT_LAYOUTS,
     CONF_ADD_ALL,
+    CONF_CLIENT_COLUMNS,
+    CONF_CLIENT_LAYOUT,
     CONF_SCAN,
     CONF_BASE_URL,
     CONF_CLIENT_ID,
@@ -37,6 +41,8 @@ from .const import (
     CONF_TRACKED,
     DEFAULT_ADD_ALL,
     DEFAULT_BASE_URL,
+    DEFAULT_CLIENT_COLUMNS,
+    DEFAULT_CLIENT_LAYOUT,
     DOMAIN,
     MAX_POLL_SECONDS,
     MIN_POLL_SECONDS,
@@ -162,6 +168,8 @@ class HpeCentralOptionsFlow(OptionsFlow):
         self._hostnames: dict[str, str] = {}
         self._add_all = DEFAULT_ADD_ALL
         self._scan = POLL_SECONDS
+        self._columns = list(DEFAULT_CLIENT_COLUMNS)
+        self._layout = DEFAULT_CLIENT_LAYOUT
         self._site_ids: list[str] = []
         self._all_sites: dict[str, str] = {}
 
@@ -179,6 +187,8 @@ class HpeCentralOptionsFlow(OptionsFlow):
                 self._picked = list(dict.fromkeys(m for m in picked if m))
                 self._add_all = user_input.get(CONF_ADD_ALL, DEFAULT_ADD_ALL)
                 self._scan = int(user_input.get(CONF_SCAN, POLL_SECONDS))
+                self._columns = [c for c in user_input.get(CONF_CLIENT_COLUMNS, DEFAULT_CLIENT_COLUMNS) if c in CLIENT_COLUMNS]
+                self._layout = user_input.get(CONF_CLIENT_LAYOUT, DEFAULT_CLIENT_LAYOUT)
                 self._site_ids = _site_choice(user_input.get(CONF_SITES, []), self._all_sites)
                 if not self._picked:
                     return self.async_create_entry(data=self._options({}))
@@ -202,6 +212,17 @@ class HpeCentralOptionsFlow(OptionsFlow):
                         CONF_SCAN, default=self.config_entry.options.get(CONF_SCAN, POLL_SECONDS)
                     ): NumberSelector(NumberSelectorConfig(min=MIN_POLL_SECONDS, max=MAX_POLL_SECONDS, step=5,
                                                            unit_of_measurement="s", mode=NumberSelectorMode.BOX)),
+                    vol.Optional(
+                        CONF_CLIENT_COLUMNS,
+                        default=self.config_entry.options.get(CONF_CLIENT_COLUMNS, DEFAULT_CLIENT_COLUMNS),
+                    ): SelectSelector(SelectSelectorConfig(
+                        options=[SelectOptionDict(value=k, label=v) for k, v in CLIENT_COLUMNS.items()],
+                        multiple=True, mode=SelectSelectorMode.DROPDOWN)),
+                    vol.Optional(
+                        CONF_CLIENT_LAYOUT, default=self.config_entry.options.get(CONF_CLIENT_LAYOUT, DEFAULT_CLIENT_LAYOUT)
+                    ): SelectSelector(SelectSelectorConfig(
+                        options=[SelectOptionDict(value=k, label=v) for k, v in CLIENT_LAYOUTS.items()],
+                        mode=SelectSelectorMode.DROPDOWN)),
                     vol.Optional(
                         CONF_SITES, default=self.config_entry.options.get(CONF_SITES) or list(self._all_sites)
                     ): _sites_selector(self._all_sites),
@@ -232,7 +253,8 @@ class HpeCentralOptionsFlow(OptionsFlow):
         )
 
     def _options(self, names: dict[str, str]) -> dict[str, Any]:
-        return {CONF_SITES: self._site_ids, CONF_TRACKED: names, CONF_ADD_ALL: self._add_all, CONF_SCAN: self._scan}
+        return {CONF_SITES: self._site_ids, CONF_TRACKED: names, CONF_ADD_ALL: self._add_all, CONF_SCAN: self._scan,
+                CONF_CLIENT_COLUMNS: self._columns, CONF_CLIENT_LAYOUT: self._layout}
 
     async def _seen(self) -> dict[str, dict[str, Any]]:
         """Clients remembered by the running entry (or read from its store when it is not loaded)."""

@@ -234,6 +234,10 @@ CLIENT_SENSORS = (
 )
 
 
+# Every Wi-Fi client gets these (with "add all other clients" on), disabled until enabled under Entities.
+SIGNAL_SENSORS = tuple(d for d in CLIENT_SENSORS if d.key in ("rssi", "snr"))
+
+
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_") or "x"
 
@@ -264,6 +268,13 @@ async def async_setup_entry(
         for mac in c.picked:
             for desc in CLIENT_SENSORS:
                 yield f"{client_uid(entry, mac)}_client_{desc.key}", lambda d=desc, m=mac: ClientSensor(c, entry, m, d)
+        if c.add_all:
+            for mac, s in list(net.clients.items()):
+                if mac in c.picked or s.wired:
+                    continue
+                for desc in SIGNAL_SENSORS:
+                    yield (f"{client_uid(entry, mac)}_client_{desc.key}",
+                           lambda d=desc, m=mac, label=c.client_name(s): ClientSensor(c, entry, m, d, label))
 
     add_entities_as_seen(entry, c, async_add_entities, candidates)
 
@@ -335,12 +346,19 @@ class DeviceSensor(CentralEntity, SensorEntity):
 class ClientSensor(CentralEntity, SensorEntity):
     entity_description: CentralSensorDescription
 
-    def __init__(self, c: HpeCentralCoordinator, entry, mac: str, desc: CentralSensorDescription) -> None:
+    def __init__(self, c: HpeCentralCoordinator, entry, mac: str, desc: CentralSensorDescription,
+                 label: str | None = None) -> None:
         super().__init__(c)
         self.entity_description = desc
         self._mac = mac
         self._attr_unique_id = f"{client_uid(entry, mac)}_client_{desc.key}"
-        self._attr_device_info = client_device_info(entry, mac)
+        if label is None:
+            self._attr_device_info = client_device_info(entry, mac)
+        else:
+            # A client not picked: no device of its own (like its tracker), disabled until enabled under Entities.
+            self._attr_has_entity_name = False
+            self._attr_name = f"{label} {'Signal' if desc.key == 'rssi' else 'SNR'}"
+            self._attr_entity_registry_enabled_default = False
 
     @property
     def native_value(self) -> Any:

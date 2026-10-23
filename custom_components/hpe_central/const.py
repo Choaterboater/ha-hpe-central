@@ -9,6 +9,8 @@ CONF_TENANT_ID = "tenant_id"
 CONF_SITES = "sites"  # options: site ids to include; empty = all
 CONF_TRACKED = "tracked"  # options: {"02:00:00:00:00:01": "Name"}
 CONF_SCAN = "scan_seconds"  # options: seconds between sweeps
+CONF_CLIENT_COLUMNS = "client_columns"  # options: client list card columns (cards that set none)
+CONF_CLIENT_LAYOUT = "client_layout"  # options: client list card layout (cards that set none)
 CONF_ADD_ALL = "add_all_clients"  # options: also add every other client, disabled until enabled
 DEFAULT_ADD_ALL = True
 
@@ -81,3 +83,14 @@ MIN_REQUEST_GAP_SECONDS = 0.35
 
 # Central's client stream (Advanced subscription): client joins in seconds. Sweeps still run.
 CLIENT_STREAM_PATH = "/network-monitoring/v1/clients-events"
+
+# The client list card's columns (keys match hpe-cards.js CLIENT_COLUMNS; Client is always first).
+CLIENT_COLUMNS = {
+    "ip": "IP address", "network": "Network", "connected_to": "Connected to", "signal": "Signal", "snr": "SNR",
+    "category": "Type", "vendor": "Vendor", "os": "OS", "site": "Site", "vlan": "VLAN", "role": "Role", "band": "Band",
+    "channel": "Channel", "security": "Security", "auth": "Auth", "user_name": "User name", "hostname": "Hostname",
+    "mac": "MAC", "connected_since": "Connected for", "last_seen": "Last seen", "health": "Health", "source": "Source",
+}
+DEFAULT_CLIENT_COLUMNS = ["ip", "network", "connected_to", "signal", "category"]
+CLIENT_LAYOUTS = {"table": "Always columns", "auto": "Columns, or a list when the card is narrow", "list": "Always a list"}
+DEFAULT_CLIENT_LAYOUT = "table"
