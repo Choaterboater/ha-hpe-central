@@ -88,7 +88,7 @@ CLIENT_STREAM_PATH = "/network-monitoring/v1/clients-events"
 CLIENT_COLUMNS = {
     "ip": "IP address", "network": "Network", "connected_to": "Connected to", "signal": "Signal", "snr": "SNR",
     "category": "Type", "vendor": "Vendor", "os": "OS", "site": "Site", "vlan": "VLAN", "role": "Role", "band": "Band",
-    "channel": "Channel", "security": "Security", "auth": "Auth", "user_name": "User name", "hostname": "Hostname",
+    "channel": "Channel", "phy": "PHY type", "capabilities": "802.11 capabilities", "bssid": "BSSID", "security": "Security", "auth": "Auth", "user_name": "User name", "hostname": "Hostname",
     "mac": "MAC", "connected_since": "Connected for", "last_seen": "Last seen", "health": "Health", "source": "Source",
 }
 DEFAULT_CLIENT_COLUMNS = ["ip", "network", "connected_to", "signal", "category"]

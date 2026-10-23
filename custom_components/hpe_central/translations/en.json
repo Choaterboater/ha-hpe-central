@@ -147,6 +147,30 @@
       },
       "snr": {
         "name": "SNR"
+      },
+      "band": {
+        "name": "Band"
+      },
+      "channel": {
+        "name": "Channel"
+      },
+      "phy": {
+        "name": "PHY type"
+      },
+      "capabilities": {
+        "name": "802.11 capabilities"
+      },
+      "security": {
+        "name": "Security"
+      },
+      "key_mgmt": {
+        "name": "Key management"
+      },
+      "auth": {
+        "name": "Auth type"
+      },
+      "bssid": {
+        "name": "BSSID"
       }
     },
     "binary_sensor": {

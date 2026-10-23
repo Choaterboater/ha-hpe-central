@@ -592,6 +592,64 @@ async def test_client_list_columns_and_layout_come_from_the_options(hass, aiocli
     assert (await ws.receive_json())["result"]["settings"] == {"columns": ["ip", "snr"], "layout": "list"}
 
 
+WIFI_DETAIL = {"clientCapabilities": "802.11ac, 802.11k, 802.11v", "phyType": "802.11a", "wirelessChannel": "56E (80 MHz)",
+               "wirelessSecurity": "CCM-128", "keyManagement": "OWE", "authenticationType": "PSK", "bssid": "8c:79:09:76:5b:22"}
+
+
+def client_state(hass, mac, key):
+    ent_reg = er.async_get(hass)
+    entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, f"{TENANT}_{mac.replace(':', '')}_client_{key}")
+    return entity_id and ent_reg.async_get(entity_id), entity_id and hass.states.get(entity_id)
+
+
+async def test_picked_client_gets_80211_capabilities_and_phy_sensors(hass, aioclient_mock):
+    central(aioclient_mock, [{**PHONE_A, **WIFI_DETAIL}])
+    await setup(hass)
+    ent, st = client_state(hass, PHONE, "capabilities")
+    assert st.state == "802.11ac, 802.11k, 802.11v" and ent.entity_category is None
+    ent, st = client_state(hass, PHONE, "phy")
+    assert st.state == "802.11a" and ent.entity_category is None
+    assert hass.states.get("sensor.test_phone_802_11_capabilities").state == "802.11ac, 802.11k, 802.11v"
+    assert hass.states.get("sensor.test_phone_phy_type").state == "802.11a"
+
+
+async def test_picked_client_gets_the_other_wireless_fields_as_sensors(hass, aioclient_mock):
+    central(aioclient_mock, [{**PHONE_A, **WIFI_DETAIL}])
+    await setup(hass)
+    expected = {"band": ("5 GHz", None), "channel": ("56E (80 MHz)", None), "security": ("CCM-128", "diagnostic"),
+                "key_mgmt": ("OWE", "diagnostic"), "auth": ("PSK", "diagnostic"), "bssid": ("8c:79:09:76:5b:22", "diagnostic")}
+    for key, (value, category) in expected.items():
+        ent, st = client_state(hass, PHONE, key)
+        assert st.state == value, key
+        assert (ent.entity_category and ent.entity_category.value) == category, key
+
+
+async def test_client_text_sensors_are_recorded_so_history_shows_changes(hass, aioclient_mock):
+    from custom_components.hpe_central.sensor import ClientSensor
+
+    central(aioclient_mock, [{**PHONE_A, **WIFI_DETAIL}])
+    await setup(hass)
+    # Nothing on client sensors is kept out of the recorder: each state change is stored and graphable.
+    assert not getattr(ClientSensor, "_unrecorded_attributes", frozenset())
+    entity_id = client_state(hass, PHONE, "phy")[0].entity_id
+    assert entity_id in {s.entity_id for s in hass.states.async_all("sensor")}
+
+
+async def test_wired_client_has_no_wireless_field_sensor_values(hass, aioclient_mock):
+    central(aioclient_mock, [{**PRINTER, "macAddress": PHONE, **WIFI_DETAIL}])
+    await setup(hass)
+    for key in ("capabilities", "phy", "band", "channel", "bssid"):
+        assert client_state(hass, PHONE, key)[1].state == "unknown", key
+
+
+async def test_gear_offers_80211_capabilities_phy_and_bssid_columns(hass, aioclient_mock):
+    central(aioclient_mock, [PHONE_A])
+    e = await setup(hass)
+    r = await hass.config_entries.options.async_init(e.entry_id)
+    values = [o["value"] for o in r["data_schema"].schema["client_columns"].config["options"]]
+    assert {"capabilities", "phy", "bssid"} <= set(values)
+
+
 async def test_detail_errors_do_not_fail_the_sweep(hass, aioclient_mock, freezer):
     central(aioclient_mock, [PHONE_A], radios_status=404, switch_status=404)
     e = await setup(hass)

@@ -231,6 +231,12 @@ CLIENT_SENSORS = (
     CentralSensorDescription(key="snr", translation_key="snr", native_unit_of_measurement="dB",
                           state_class=SensorStateClass.MEASUREMENT,
                           value_fn=lambda c, s: None if s.wired else s.snr),
+    # Text: recorded in history, so a history graph shows when each changed (a roam, a band switch).
+    CentralSensorDescription(key="band", translation_key="band", value_fn=lambda c, s: None if s.wired else s.band),
+    *(CentralSensorDescription(key=key, translation_key=key, entity_category=category,
+                               value_fn=lambda c, s, key=key: None if s.wired else s.details.get(key))
+      for key, category in (("channel", None), ("phy", None), ("capabilities", None), ("security", _DIAG),
+                            ("key_mgmt", _DIAG), ("auth", _DIAG), ("bssid", _DIAG))),
 )
 
 
