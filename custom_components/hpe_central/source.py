@@ -10,7 +10,9 @@ Client: mac, site_id, ip, user_name (Central's name for it), hostname, manufactu
         details {DETAIL_FIELDS key: text, connected_since (epoch s)} for the client list card.
 Device: mac, site_id, type ("ap" | "switch" | "gateway"), name, model, serial,
         ip, version, online, uptime (s), clients, cpu (%), memory (%),
-        temperature (C),
+        temperature (C), hardware {fans_up, fans_total, psu_up, psu_total,
+            members [{member, serial, role, model, cpu, memory, temperature (health text), fans, power_supplies}]}
+            (switches, from hardware-categories),
         radios {band_24 | band_5 | band_6: {band, status ("up" | "down" |
             "disabled"), channel (str, "56E" ok), bandwidth (MHz), power (dBm),
             utilization (%), noise_floor (dBm), clients}},
@@ -316,6 +318,11 @@ def client_is_connected(c: dict[str, Any]) -> bool:
 def device_from_central(d: dict[str, Any], stats: dict[str, Any] | None = None) -> Device:
     """Normalise one /network-monitoring/v1/devices row, with the AP / gateway stats row if any."""
     stats = stats or {}
+    trends = stats.get("switchTrends") if isinstance(stats.get("switchTrends"), dict) else {}
+
+    def stat(*keys: str) -> float | None:
+        return next((v for k in keys for src in (stats, trends) if (v := _num(src.get(k))) is not None), None)
+
     uptime = _num(d.get("uptimeInMillis") or stats.get("uptimeInMillis"))
     return {
         "mac": device_key(d),
@@ -330,9 +337,10 @@ def device_from_central(d: dict[str, Any], stats: dict[str, Any] | None = None) 
         "online": str(d.get("status") or "").upper() in ("ONLINE", "UP"),
         "uptime": uptime / 1000 if uptime is not None else None,
         "clients": _num(stats.get("clientCount")),
-        "cpu": _num(stats.get("cpuUtilization")),
-        "memory": _num(stats.get("memoryUtilization")),
-        "temperature": None,
+        "cpu": stat("cpuUtilization"),
+        "memory": stat("memoryUtilization"),
+        "temperature": stat("systemTemperature"),
+        "hardware": None,
         "radios": {},
         "ports": {},
         "uplink": None,
@@ -459,6 +467,35 @@ class _RateLimited(Exception):
     """A detail call got 429: stop the detail calls until the next detail cycle."""
 
 
+def _count(v: Any) -> tuple[int, int] | None:
+    if not isinstance(v, dict) or _int(v.get("totalCount")) is None:
+        return None
+    return _int(v.get("upCount")) or 0, _int(v.get("totalCount")) or 0
+
+
+def hardware_from_central(rows: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    """/switches/{serial}/hardware-categories: fans and power supplies up of total, summed over a stack,
+    and each member's health (cpu, memory, temperature: "Good"...)."""
+    if not rows:
+        return None
+    out: dict[str, Any] = {"fans_up": None, "fans_total": None, "psu_up": None, "psu_total": None, "members": []}
+    for r in rows:
+        for key, name in (("fans", "fans"), ("psu", "powerSupplies")):
+            if (c := _count(r.get(name))) is not None:
+                out[f"{key}_up"] = (out[f"{key}_up"] or 0) + c[0]
+                out[f"{key}_total"] = (out[f"{key}_total"] or 0) + c[1]
+        health = {k: _text((r.get(k) or {}).get("health")) if isinstance(r.get(k), dict) else None
+                  for k in ("cpu", "memory", "temperature")}
+        fans, psu = _count(r.get("fans")), _count(r.get("powerSupplies"))
+        out["members"].append({
+            "member": _int(r.get("stackMemberId")), "serial": _text(r.get("serialNumber")), "role": _text(r.get("role")),
+            "model": _text(r.get("model")), **health,
+            "fans": f"{fans[0]} of {fans[1]}" if fans else None, "power_supplies": f"{psu[0]} of {psu[1]}" if psu else None,
+        })
+    out["members"].sort(key=lambda m: m["member"] if m["member"] is not None else 0)
+    return out
+
+
 def alarm_from_central(a: dict[str, Any], site_ids_by_name: dict[str, str]) -> Alarm:
     return {
         "id": a.get("id"),
@@ -515,6 +552,8 @@ class CentralSource:
         devices = await self.client.devices()
         stats = {str(r.get("serialNumber") or "").upper(): r for r in await self.client.aps()}
         stats.update({str(r.get("serialNumber") or "").upper(): r for r in await self.client.gateways()})
+        # Switches carry CPU, memory and temperature in their list row (switchTrends).
+        stats.update({str(r.get("serialNumber") or "").upper(): r for r in await self.client.switches()})
         raw = await self._raw_clients()
         index = self._by_serial = _ap_index(devices)
         clients = [client_from_central(c, sid, index) for sid, c in raw]
@@ -588,7 +627,9 @@ class CentralSource:
         interfaces = await self._detail("interfaces", serial, self.client.switch_interfaces(serial))
         poe = await self._detail("interface PoE", serial, self.client.switch_poe(serial))
         vlans = await self._detail("VLANs", serial, self.client.switch_vlans(serial))
+        hardware = await self._detail("hardware", serial, self.client.switch_hardware(serial))
         return {
+            "hardware": hardware_from_central(hardware),
             "ports": ports_from_central(interfaces or [], poe),
             "poe": poe_from_central(poe),
             "vlans": vlans_from_central(vlans),
@@ -624,6 +665,7 @@ class CentralSource:
                 dev["ports"] = ports
                 dev["poe"] = dict(det["poe"]) if det.get("poe") else None
                 dev["vlans"] = [dict(v) for v in det["vlans"]] if det.get("vlans") is not None else None
+                dev["hardware"] = det.get("hardware")
         # An AP's uplink names the switch port that lists the AP as its neighbour.
         for serial, dev in by_serial.items():
             if dev["type"] != "ap":

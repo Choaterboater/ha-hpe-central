@@ -142,6 +142,12 @@
       "vlans": {
         "name": "VLANs"
       },
+      "fans": {
+        "name": "Fans up"
+      },
+      "power_supplies": {
+        "name": "Power supplies up"
+      },
       "rssi": {
         "name": "Signal"
       },

@@ -84,6 +84,17 @@ SW_INTERFACES = [
 ]
 SW_POE = [{"name": "1/1/1", "powerDrawnInWatts": 12.5}, {"name": "1/1/2", "powerDrawnInWatts": 0.0}]
 SW_VLANS = [{"id": "10", "name": "IOT", "status": "Up"}, {"id": "1", "name": "DEFAULT_VLAN", "status": "Up"}]
+# Shaped like New Central's documented /switches row (switchTrends) and /hardware-categories answer: a 2-member stack.
+SWITCHES = [{"serialNumber": SW_SERIAL, "switchType": "AOS-S", "switchTrends": {
+    "cpuUtilization": 12.5, "memoryUtilization": 41, "systemTemperature": 38}}]
+SW_HARDWARE = [
+    {"serialNumber": "SW0000002", "stackMemberId": 2, "role": "Standby", "model": "SW-EXAMPLE",
+     "cpu": {"health": "Good"}, "memory": {"health": "Good"}, "temperature": {"health": "Good"},
+     "fans": {"health": "Good", "upCount": 3, "totalCount": 4}, "powerSupplies": {"upCount": 2, "totalCount": 2}},
+    {"serialNumber": SW_SERIAL, "stackMemberId": 1, "role": "Conductor", "model": "SW-EXAMPLE",
+     "cpu": {"health": "Good"}, "memory": {"health": "Good"}, "temperature": {"health": "Good"},
+     "fans": {"health": "Good", "upCount": 4, "totalCount": 4}, "powerSupplies": {"upCount": 2, "totalCount": 2}},
+]
 DETAIL = ("/radios", f"/aps/{AP_SERIAL}", "/interfaces", "/interface-poe", "/vlans")
 # Shape of a real New Central /clients row (an iPhone with a private MAC; identifiers replaced):
 # hostName / clientName are the MAC, clientManufacturer is "Private", and the AP's own
@@ -121,6 +132,7 @@ def central(aioclient_mock, clients=None, devices=None, alerts=None, status=200,
                        json={"items": devices if devices is not None else DEVICES, "next": None})
     aioclient_mock.get(f"{BASE}/network-monitoring/v1/aps?limit=100", json={"items": APS})
     aioclient_mock.get(f"{BASE}/network-monitoring/v1/gateways?limit=100", json={"items": GATEWAYS})
+    aioclient_mock.get(f"{BASE}/network-monitoring/v1/switches?limit=100", json={"items": SWITCHES})
     aioclient_mock.get(f"{BASE}/network-monitoring/v1/clients?limit=1000&site-id={SITE}",
                        json={"items": clients if clients is not None else [], "total": len(clients or [])})
     aioclient_mock.get(f"{BASE}/network-notifications/v1/alerts?limit=100", json={"items": alerts or []})
@@ -131,6 +143,8 @@ def central(aioclient_mock, clients=None, devices=None, alerts=None, status=200,
                        ("vlans", SW_VLANS)):
         aioclient_mock.get(f"{mon}/switches/{SW_SERIAL}/{path}?limit=1000", status=switch_status,
                            json={"items": rows, "count": len(rows), "total": len(rows), "offset": "0"})
+    aioclient_mock.get(f"{mon}/switches/{SW_SERIAL}/hardware-categories", status=switch_status,
+                       json={"items": SW_HARDWARE, "count": len(SW_HARDWARE)})
 
 
 def detail_calls(aioclient_mock) -> int:
@@ -460,6 +474,21 @@ async def test_single_switch_ports_stay_on_the_switch(hass, aioclient_mock):
     switch = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_dev_020000000005"), e.entry_id)
     assert ent_reg.async_get("binary_sensor.switch_1_port_1_1_1").device_id == switch.id
     assert not [d for d in dr.async_entries_for_config_entry(dev_reg, e.entry_id) if "member" in d.name]
+
+
+async def test_switch_cpu_memory_temperature_fans_and_power_supplies(hass, aioclient_mock):
+    central(aioclient_mock, [])
+    await setup(hass)
+    st = lambda e: hass.states.get(e)  # noqa: E731
+    assert st("sensor.switch_1_cpu").state == "12.5"
+    assert st("sensor.switch_1_memory").state == "41"
+    assert st("sensor.switch_1_temperature").state == "38"
+    fans = st("sensor.switch_1_fans_up")
+    assert fans.state == "7" and fans.attributes["fans_total"] == 8  # summed over the stack
+    assert [m["member"] for m in fans.attributes["members"]] == [1, 2]
+    assert fans.attributes["members"][1]["fans"] == "3 of 4" and fans.attributes["members"][0]["cpu"] == "Good"
+    psu = st("sensor.switch_1_power_supplies_up")
+    assert psu.state == "4" and psu.attributes["power_supplies_total"] == 4
 
 
 async def test_switch_lists_its_wired_clients(hass, aioclient_mock):

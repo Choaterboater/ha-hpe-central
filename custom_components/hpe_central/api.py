@@ -222,6 +222,11 @@ class CentralClient:
     async def switch_vlans(self, serial: str) -> list[dict[str, Any]]:
         return await self.items(f"/network-monitoring/v1/switches/{serial}/vlans", limit=1000)
 
+    async def switch_hardware(self, serial: str) -> list[dict[str, Any]]:
+        """One row per stack member: cpu / memory / temperature health, fans and power supplies up of total."""
+        page = await self.get(f"/network-monitoring/v1/switches/{serial}/hardware-categories") or {}
+        return [r for r in page.get("items") or [] if isinstance(r, dict)]
+
     async def alerts(self) -> list[dict[str, Any]]:
         return await self.items("/network-notifications/v1/alerts")
 

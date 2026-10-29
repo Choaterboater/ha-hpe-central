@@ -42,7 +42,7 @@ from .source import BANDS, Device, port_sort_key
 
 _DIAG = EntityCategory.DIAGNOSTIC
 # List-shaped attributes stay out of the recorder.
-_LIST_ATTRS = frozenset({"clients", "radios", "ports", "wlans", "vlans"})
+_LIST_ATTRS = frozenset({"clients", "radios", "ports", "wlans", "vlans", "members"})
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -197,6 +197,15 @@ DEVICE_SENSORS: tuple[CentralSensorDescription, ...] = (
     CentralSensorDescription(key="vlans", translation_key="vlans", state_class=SensorStateClass.MEASUREMENT,
                           value_fn=lambda d: None if d.get("vlans") is None else len(d["vlans"]), exists_fn=lambda d: d.get("vlans") is not None,
                           attrs_fn=lambda c, d: {"vlans": (d.get("vlans") or [])[:MAX_LIST_ROWS]}),
+    CentralSensorDescription(key="fans", translation_key="fans", state_class=SensorStateClass.MEASUREMENT,
+                          entity_category=_DIAG, value_fn=lambda d: ((d.get("hardware") or {}).get("fans_up")),
+                          exists_fn=lambda d: (d.get("hardware") or {}).get("fans_total") is not None,
+                          attrs_fn=lambda c, d: {"fans_total": (d.get("hardware") or {}).get("fans_total"),
+                                                 "members": (d.get("hardware") or {}).get("members") or []}),
+    CentralSensorDescription(key="power_supplies", translation_key="power_supplies", state_class=SensorStateClass.MEASUREMENT,
+                          entity_category=_DIAG, value_fn=lambda d: ((d.get("hardware") or {}).get("psu_up")),
+                          exists_fn=lambda d: (d.get("hardware") or {}).get("psu_total") is not None,
+                          attrs_fn=lambda c, d: {"power_supplies_total": (d.get("hardware") or {}).get("psu_total")}),
 ) + tuple(
     CentralSensorDescription(key=f"{band}_{field}", translation_key=f"radio_{field}", entity_category=_DIAG,
                           translation_placeholders={"band": label}, value_fn=_radio(band, field),
