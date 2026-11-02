@@ -148,10 +148,9 @@ Central's 10 per second, so other tools on the same API client keep room.
 
 ## Install
 
-HACS: add this repository as a custom repository (category *Integration*),
-install **HPE Central**, restart Home Assistant.
+HACS: open HACS, search for **HPE Central**, download it and restart Home Assistant.
 
-Manual: copy `custom_components/hpe_central` into your Home Assistant
+Manual: if you don't use HACS, copy `custom_components/hpe_central` into your Home Assistant
 `config/custom_components/` folder and restart.
 
 ## Set up
