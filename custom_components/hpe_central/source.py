@@ -509,7 +509,7 @@ def alarm_from_central(a: dict[str, Any], site_ids_by_name: dict[str, str]) -> A
 
 
 class CentralSource:
-    """HPE (New) Central: REST sweeps only (its client stream delivers nothing usable for presence)."""
+    """HPE (New) Central: REST sweeps plus the client stream (Advanced subscription) for joins."""
 
     def __init__(self, client: CentralClient, site_filter: list[str] | None = None) -> None:
         self.client = client
