@@ -133,9 +133,9 @@ def event_signal(entry_id: str) -> str:
 class HpeCentralCoordinator(DataUpdateCoordinator[NetworkData]):
     """One coordinator per org (config entry).
 
-    The REST sweep is the coordinator's update: every POLL_SECONDS (Central has
-    no stream; with one it would be every 5 minutes while it is up). The away
-    check pushes updates to the entities without moving the sweep timer.
+    The REST sweep is the coordinator's update: every POLL_SECONDS, also while
+    the client stream is up (the stream only brings joins). The away check
+    pushes updates to the entities without moving the sweep timer.
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, source: PresenceSource) -> None:

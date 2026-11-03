@@ -80,7 +80,7 @@ Each site's **Events** entity fires, with details as attributes:
 
 | Event type | When | Attributes |
 | --- | --- | --- |
-| `client_joined` | a sweep lists a client that was away | mac, name, hostname, ip, ssid, ap, tracked |
+| `client_joined` | the stream or a sweep shows a client that was away | mac, name, hostname, ip, ssid, ap, tracked |
 | `client_left` | a client has not been listed for 10 minutes | same |
 | `device_down` | a sweep reports an AP / switch / gateway offline | mac, name, type, model |
 | `device_up` | it is back online | same |
@@ -105,23 +105,30 @@ yet.
 
 ## How it decides
 
-- **Polling only.** Every **120 seconds** a sweep reads devices, AP and gateway
-  stats, alerts, and the clients of every included site that has devices.
-  Central's streaming API was checked: its client stream delivers nothing usable
-  for presence (and the AP event stream delivered nothing), so it is not used.
+- **Sweeps plus the client stream.** Every **30 seconds** by default (15 to 600,
+  set in the options) a sweep reads devices, AP and gateway stats, alerts, and the
+  clients of every included site that has devices. Alongside it the integration
+  keeps one websocket open to Central's client stream
+  (`/network-monitoring/v1/clients-events`), which reports a client joining within
+  seconds. The stream only brings joins, so the sweeps keep running at the same
+  interval while it is up: they cover departures, devices and everything else.
+- **The stream needs Central's Advanced subscription.** Without it Central refuses
+  the connection (401 / 403); the integration then tries again every 5 minutes and
+  relies on the sweeps alone. Other stream drops reconnect after 5 seconds, doubling
+  up to 5 minutes.
 - **Device detail** (AP radios and detail, switch interfaces / PoE / VLANs) costs a
-  call per device, so it is read at most every 5 minutes (in practice every third
-  sweep) and cached in between, only for online APs and switches. A detail call
+  call per device, so it is read at most every 5 minutes (every tenth sweep at the
+  default 30 s) and cached in between, only for online APs and switches. A detail call
   that fails (403, 404, 5xx) just leaves that data empty; a 429 stops the detail
   calls until the next detail cycle. Only the sweep's own calls can fail a sweep.
 - **Central's client list lags.** `/network-monitoring/v1/clients` was seen to list a
-  client 2 to 4 minutes after it joined, so with 120 s sweeps *home* can take up to
-  about 6 minutes. Client counts (per AP, per radio, per SSID) are taken from that
+  client 2 to 4 minutes after it joined, so from the sweeps alone *home* can take up
+  to about 4½ minutes at 30 s. With the client stream connected it is seconds. Client counts (per AP, per radio, per SSID) are taken from that
   list too, because the AP's and radio's own counts were seen to stay at 0.
   Central gives SNR, not RSSI, so the sensors' client rows carry `snr` and leave
   `rssi` empty; only the client list card shows an estimate (`≈ RSSI`, SNR plus the
   AP radio's noise floor).
-- **Home** on the first sweep that lists a client as connected; **away after 10
+- **Home** on the first stream message or sweep that shows a client as connected; **away after 10
   minutes** (`AWAY_AFTER_SECONDS` in `const.py`) without being listed. A short drop
   does not count as leaving. Before its first sighting a client counts as away.
 - **A Central outage never looks like everyone left.** Every call has a timeout;
@@ -135,15 +142,18 @@ yet.
 One sweep is **4 calls + 1 per site with devices** (`network-monitoring/v1/devices`,
 `/aps`, `/gateways`, `network-notifications/v1/alerts`, and
 `network-monitoring/v1/clients?site-id=…`), more only when a list runs past one
-page: (4 + sites) × 30 calls per hour, 150 per hour for one site.
+page. At the default 30 s that is (4 + sites) × 120 calls per hour, 600 per hour
+for one site; at 120 s it is (4 + sites) × 30, 150 per hour.
 
-Device detail runs every third sweep (every 6 minutes, 10 times an hour): **2 calls
-per online AP** (`/aps/<serial>/radios`, `/aps/<serial>`) and **3 per online switch**
+Device detail runs every 5 minutes (12 times an hour): **2 calls per online AP**
+(`/aps/<serial>/radios`, `/aps/<serial>`) and **3 per online switch**
 (`/switches/<serial>/interfaces`, `/interface-poe`, `/vlans`); offline devices and
-gateways cost nothing. For one site with 6 APs and 1 switch that is 120 calls per
-hour with the switch offline, 150 with it online, so **270 to 300 calls per hour**
-in all, plus a `network-config/v1/sites` call after a start or an error and one
-GreenLake token about every 2 hours. Requests are spaced at least 0.35 s apart, well under
+gateways cost nothing. For one site with 6 APs and 1 switch that is 144 calls per
+hour with the switch offline, 180 with it online, so **744 to 780 calls per hour**
+in all at 30 s (294 to 330 at 120 s), plus a `network-config/v1/sites` call after a start or an error and one
+GreenLake token about every 2 hours. The client stream is one websocket
+connection, not counted per message; when Central refuses it, it costs one
+connection attempt every 5 minutes. Requests are spaced at least 0.35 s apart, well under
 Central's 10 per second, so other tools on the same API client keep room.
 
 ## Install
